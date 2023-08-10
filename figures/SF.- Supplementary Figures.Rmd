@@ -1,0 +1,419 @@
+---
+title: "Supplementary Figures"
+---
+
+## Setup
+
+```{r setup}
+source('0.0.- Setup.R')
+```
+
+```{r}
+ukb_adj_47s_diff <- read_csv(
+    file.path(root_fd, 'data', 'cn', 'ukb_adj_cn_wb.csv'),
+    col_types = cols())
+```
+    
+
+## S7.- Twins Sharing Sequencing Release
+
+```{r}
+ukb_twins_cn_sr <- read_csv(
+    file.path(root_fd, 'data', 'pheno', 'ukb_rel_first_type.csv'),
+    col_types = cols()) |>
+  filter(rel_type == 'Twin') |>
+  inner_join(ukb_sr, by = c('eid_o'= 'eid')) |>
+  inner_join(ukb_sr, by = c('eid_y' = 'eid'), suffix = c('_o', '_y')) |>
+  filter(`Seq Release_o` == `Seq Release_y`) |>
+  inner_join(ukb_47s_wb |> select(eid, CN), by = c('eid_o' = 'eid')) |>
+  inner_join(ukb_47s_wb |> select(eid, CN),
+             by = c('eid_y' = 'eid'), suffix = c('_o', '_y')) |>
+  rename(sr = `Seq Release_o`)
+```
+
+```{r}
+ukb_twins_cn_sr_p <- ukb_twins_cn_sr |>
+  ggplot(aes(x = CN_o, y = CN_y)) +
+  geom_point(aes(shape = sr, fill = sr),
+             alpha = 0.5, size = 2,
+             stroke = 0.75) +
+  geom_smooth(method = 'lm', size = 0.5, colour = 'grey20', alpha = 0.1) +
+  facet_grid(cols = vars(sr)) +
+  ggpubr::stat_cor(aes(
+    label = cor_format(..r.., ..p..)),
+    size = 5, label.y.npc = 0.96) +
+  scale_x_continuous(limits = c(0, 4.75e-4),
+                     breaks = c(0, 2e-4, 4e-4),
+                     labels = fancy_scientific) +
+  scale_y_continuous(limits = c(0, 4.75e-4),
+                     breaks = c(0, 2e-4, 4e-4),
+                     labels = fancy_scientific) +
+  labs(x = '18S Ratio for Twin 1',
+      y = '18S Ratio for Twin 2') +
+  scale_shape_manual(
+    'Sequencing Batch',
+    values = c(21, 22, 23)) +
+  scale_fill_brewer(
+    'Sequencing Batch',
+    palette = 'Greys') +
+  theme_pub() +
+  theme(aspect.ratio = 1,
+        legend.position = 'none')
+```
+
+```{r}
+ggsave(
+  plot = ukb_twins_cn_sr_p,
+  filename = file.path('..', 'figures_supp', 'S7.- CN Twins, batch.png'), 
+  height = 5, width = 10)
+```
+
+
+```{r}
+ukb_twins_cn_sr_join_p <- ukb_twins_cn_sr |>
+  ggplot(aes(x = CN_o, y = CN_y)) +
+  geom_point(aes(shape = sr, fill = sr),
+             alpha = 0.5, size = 2,
+             stroke = 0.75) +
+  geom_smooth(method = 'lm', size = 0.5, 
+              colour = 'grey20', alpha = 0.1) +
+  ggpubr::stat_cor(aes(
+    label = cor_format(..r.., ..p..)),
+    size = 5, label.y.npc = 0.96) +
+  scale_x_continuous(limits = c(0, 4.75e-4),
+                     breaks = c(0, 2e-4, 4e-4),
+                     labels = fancy_scientific) +
+  scale_y_continuous(limits = c(0, 4.75e-4),
+                     breaks = c(0, 2e-4, 4e-4),
+                     labels = fancy_scientific) +
+  scale_shape_manual(
+    'Sequencing Batch',
+    values = c(21, 22, 23)) +
+  scale_fill_brewer(
+    'Sequencing Batch',
+    palette = 'Greys') +
+  labs(
+    x = '18S Ratio for Twin 1',
+    y = '18S Ratio for Twin 2') +
+  theme_pub() +
+  theme(aspect.ratio = 1,
+        legend.title = element_text(size = 14, face = 'bold'),
+        legend.text = element_text(size = 12))
+```
+
+```{r}
+ggsave(
+  plot = ukb_twins_cn_sr_join_p,
+  filename = file.path('..', 'figures_supp', 'S7.- CN Twins.png'), 
+  height = 5, width = 7)
+```
+
+## S10.- Correlation between blood counts
+
+```{r}
+ukb_blood_counts <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_blood_counts.csv'),
+  col_types = cols())
+```
+
+```{r}
+ukb_bc_cor_pr <- cor(ukb_blood_counts %>%
+      na.omit() %>%
+      filter(!is.na(`Erythrocyte #`), ! is.na(`Platelet #`)) %>%
+      select(ends_with('#'))) %>%
+  as_tibble(rownames = 'cell1') |>
+  pivot_longer(-cell1, names_to = 'cell2', values_to = 'pr') %>%
+  filter(cell1 < cell2)
+```
+
+```{r}
+ukb_bc_cor_p <- ukb_bc_cor_pr %>%
+  ggplot(aes(x = cell1, y = cell2, fill = pr)) +
+  geom_tile(colour = 'black', size = 0.5) +
+  scale_x_discrete(position = 'top') +
+  scale_fill_gradientn(
+    "Pearson's R",
+    limits = c(-1, 1),
+    colours=c("red4", "indianred", "white", "steelblue", "blue4")) +
+  labs(x = '', y = '') +
+  theme_pub() +
+  theme(legend.position = 'bottom',
+        legend.title = element_text(size = 14,
+                                    face = 'bold'),
+        legend.text = element_text(size = 12), 
+        panel.border = element_blank(),
+        aspect.ratio = 1,
+        panel.grid = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 0)) +
+  guides(fill = guide_legend(title.position="top"))
+```
+
+```{r}
+ggsave(
+  plot = ukb_bc_cor_p,
+  filename = file.path('..', 'figures_supp', 'S10.- Correlation between blood counts.png'), 
+  height = 7, width = 7.5)
+```
+
+
+```{r}
+corrFunc <- function(var1, var2, data) {
+  result <- broom::tidy(cor.test(data[[var1]], data[[var2]],
+                                 method = 'pearson'))
+  bind_cols(
+    tibble(var1, var2),
+    result |> select(estimate, pval = p.value, statistic))
+}
+
+cor_df <- ukb_blood_counts %>%
+  na.omit() %>%
+  filter(!is.na(`Erythrocyte #`), ! is.na(`Platelet #`)) %>%
+  select(ends_with('#'))
+
+## Pairs of variables for which we want correlations
+vars <- expand.grid(
+  v1 = colnames(cor_df),
+  v2 = colnames(cor_df),
+  stringsAsFactors = F) |>
+  filter(v1 > v2) |>
+  arrange(v1, v2)
+
+# Apply corrFunc to all rows of vars
+(corrs <- do.call(rbind,
+                 mapply(corrFunc, 
+                        vars$v1, 
+                        vars$v2, 
+                        MoreArgs=list(data=cor_df), 
+                        SIMPLIFY=FALSE)))
+
+```
+
+## S12.- Association with circulatory system diseases
+
+```{r}
+ukb_gwas_covars <- read_csv(
+  file.path(root_fd, 'data/pheno/ukb_gwas_covars.csv'),
+  col_types = cols())
+```
+
+```{r}
+ukb_bmi <- read_csv(
+  file.path(root_fd, 'data/pheno/ukb_bmi.csv'),
+  col_types = cols())
+```
+
+
+```{r}
+ukb_ids <- read_csv(
+  file.path(root_fd, 'data/releases/ukb_ids_releases.csv'),
+  col_types = cols())
+```
+
+```{r}
+ukb_cs_d_ids <- ukb_ids |> 
+  filter(category == 'Circulatory system disorders')
+```
+
+```{r}
+ukb_cs_d_ids |> write_csv(
+  file.path(root_fd, 'data/releases/ukb_ids_cs_d.csv'), na = '')
+```
+
+
+```{r warning = F}
+ukb_cs_d <- read_csv(
+  file.path(root_fd, 'data/pheno/ukb_cs_d.csv'),
+  col_types = cols()) |> 
+  group_by(eid) |>
+  pivot_longer(-eid, names_to = 'id', values_to = 'val') |>
+    mutate(val = if_else(
+      as.numeric(lubridate::year(val)) < 1904 |
+        as.numeric(lubridate::year(val)) > 2036, NA, val)) |>
+  mutate(has = ! is.na(val)) |>
+  select(-val) |>
+  group_by(id) |>
+  separate(id, into = 'id', sep = '-', extra = 'drop') |>
+  mutate(id = as.numeric(id)) |>
+  inner_join(ukb_cs_d_ids |> select(id, title), by = 'id') |>
+  mutate(title = gsub('Date |first reported ', '', title)) |>
+  arrange(eid, title) |>
+  select(-id) |>
+  pivot_wider(names_from = title, values_from = has)
+```
+
+```{r}
+cs_d_groups <- bind_rows(
+  tibble(icd = paste0('I0', 0:2),
+         g_order = 1,
+         g_name = 'Acute Rheumatic Fever'),
+  tibble(icd = paste0('I0', 5:9),
+         g_order = 2,
+         g_name = 'Chronic Rheumatic Heart D.'),
+  tibble(icd = paste0('I1', 0:5),
+         g_order = 3,
+         g_name = 'Hypertensive D.'),
+  tibble(icd = paste0('I2', 0:5),
+         g_order = 4,
+         g_name = 'Ischaemic Heart D.'),
+  tibble(icd = paste0('I2', 6:8),
+         g_order = 5,
+         g_name = paste0('Pulmonary Heart D. and ', 
+                        'D. of Pulmonary Circulation')),
+  tibble(icd = paste0('I', 30:52),
+         g_order = 6,
+         g_name = 'Other Forms of Heart D.'),
+  tibble(icd = paste0('I6', 0:9),
+         g_order = 7,
+         g_name = 'Cerebrovascular D.'),
+  tibble(icd = paste0('I7', 0:9),
+         g_order = 8,
+         g_name = 'D. of Arteries, Arterioles, and Capillaries'),
+  tibble(icd = paste0('I8', 0:9),
+         g_order = 9,
+         g_name = paste0(
+           'D. of Veins, Lymphatic Vessels, ',
+           'and Lymph Nodes, Not Elsewhere Classified')),
+  tibble(icd = paste0('I9', 5:9),
+         g_order = 10,
+         g_name = 'Other and Unspecified D. of the Circ. Sys.'),
+)
+```
+
+```{r}
+ukb_group_cs <- ukb_cs_d |>
+  pivot_longer(-eid) |>
+  group_by(name) |>
+  separate(name, into = c('code'), sep = ' ', extra = 'drop') |>
+  group_by(code) |>
+  inner_join(cs_d_groups |> select(-g_order),
+             by = c('code' = 'icd')) |>
+  group_by(eid, g_name) |>
+  summarise(`Circ. Sys. D.` = any(value), .groups = 'drop') |>
+  pivot_wider(names_from = 'g_name', values_from = `Circ. Sys. D.`) |>
+  ungroup()
+```
+
+```{r}
+ukb_group_cs_covar <- ukb_group_cs |>
+  inner_join(ukb_gwas_covars |>
+               select(-Height, -starts_with('Blood')), by = 'eid') |>
+  inner_join(ukb_bmi, by = 'eid')
+```
+
+```{r}
+ukb_group_cs_scaled <- ukb_group_cs_covar |>
+  select(-eid) |>
+  mutate(across(where(is.numeric), scale)) 
+```
+
+```{r}
+cs_gs <- colnames(ukb_group_cs)[-1]
+ukb_group_cs_sig <- bind_rows(
+  lapply(
+    X = cs_gs,
+    FUN = function(x) {
+      cs_gs_other <- setdiff(cs_gs, x)
+      broom::tidy(
+        lm(CN ~ . , ukb_group_cs_scaled |>
+             select(-all_of(cs_gs_other))), 
+        conf.int = TRUE) |>
+        mutate(lpval = -log10(p.value),
+               scoeff = sign(estimate)) |>
+        mutate(term = gsub('`|TRUE', '', term),
+               term = gsub('\\\\', '\\', term)) |>
+        filter(term %in% cs_d_groups$g_name)
+    }))
+```
+
+```{r}
+cs_d_groups_names <- cs_d_groups |> group_by(g_name, g_order) |>
+  filter(icd == first(icd) | icd == last(icd)) |>
+  mutate(type = c('first', 'last')) |>
+  pivot_wider(names_from = 'type', values_from = 'icd') |>
+  inner_join(
+    ukb_group_cs |> pivot_longer(-eid) |>
+      filter(value) |>
+      group_by(name) |>
+      summarise(N = n_distinct(eid)),
+    by = c('g_name' = 'name')) |>
+  mutate(name = paste0(g_name, '\n', '(', first, '-', last, ')\n[N = ', N, ']')) |>
+  mutate(name = fct_inorder(name))
+```
+
+
+```{r}
+ukb_group_cs_sig_p <- ukb_group_cs_sig |>
+  mutate(OR = exp(estimate), OR_l = exp(conf.low), OR_h = exp(conf.high)) |>
+  inner_join(cs_d_groups_names, by = c('term' = 'g_name')) |>
+  arrange(g_order) |>
+  mutate(name = fct_inorder(name)) |>
+  ggplot(aes(y = fct_rev(name), x = OR, xmin = OR_l, xmax = OR_h)) +
+  geom_vline(xintercept = 1, linewidth = 0.5, colour = 'grey80') +
+  geom_pointrange(colour = 'grey30', size = 1.5, shape = 22,
+                  fill = 'indianred3',
+                linewidth = 0.75, alpha = 0.8,
+                position = position_dodge2(width = 0.75)) +
+  scale_x_continuous(limits = c(0.85, 1.15),
+                     breaks = c(0.9, 1, 1.1)) +
+  labs(y = '', x = "Odds Ratio; 95% CI") +
+  theme_pub() +
+  theme(strip.text = element_text(size = 12),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        axis.text.y = element_text(size = 12))
+```
+
+```{r}
+ggsave(ukb_group_cs_sig_p, 
+       filename = '../figures_supp/S13.- Circ Sys Disease.png', 
+       height = 8, width = 12)
+```
+
+## S14.- Location of 7980 analogues in BWA-MEM alignments
+
+```{r}
+gbr_loc_als <- read_csv(
+  file.path(root_fd, '..', '1000g', 'data', 'gbr_loc_als.csv'), 
+  col_types = cols()) 
+```
+
+```{r}
+gbr_loc_freqs <- gbr_loc_als %>%
+    complete(
+        sample,
+        nesting(contig, strand),
+        fill = list(num_reads = 0)) |>
+  group_by(sample, strand) |>
+  mutate(freq_reads = num_reads / sum(num_reads))
+```
+
+```{r}
+gbr_loc_freqs_p <- gbr_loc_freqs |>
+  ungroup() |>
+  mutate(strand = if_else(strand == 'f', 'Forward', 'Reverse'),
+         contig = forcats::fct_rev(contig)) |>
+  ggplot(aes(y = contig,
+             x = freq_reads,
+             fill = strand)) +
+  geom_boxplot(outlier.shape = 21,
+               outlier.alpha = 0.5,
+               position = position_dodge(width = 0.9)) +
+  scale_fill_brewer('Alignment strand in bowtie2', palette = 'Reds') +
+  labs(y = 'Hg38 contig', x = 'Frequency in BWA-MEM alignments') +
+  theme_pub() +
+  theme(
+    legend.position = 'bottom',
+    legend.title = element_text(size = 14, face = 'bold'),
+    legend.text = element_text(size = 12)
+  )
+```
+
+
+```{r}
+ggsave(
+  plot = gbr_loc_freqs_p,
+  filename = file.path('..', 'figures_supp', 'S14.- Location of 7980 reads in BWA-MEM.png'), 
+  height = 12, width = 8)
+```
+
