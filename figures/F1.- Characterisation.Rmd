@@ -1021,3 +1021,120 @@ ggsave(
                        'S9 - Manhattan CN, Top (no legend).png'), 
   height = 7, width = 7)
 ```
+
+## S8.- Association with Blood Principal Components
+
+### ANOVA
+
+
+```{r}
+covar_anova <- car::Anova(
+  lm(CN ~ . , ukb_gwas_covars |>
+       select(-eid, -Height))) |>
+  broom::tidy() |> 
+  mutate(lpval = -log10(p.value)) |>
+  filter(term != 'Residuals') |>
+  mutate(term = fct_inorder(gsub('`', '', term)))
+```
+
+```{r}
+covar_anova_p <- covar_anova |>
+  ggplot(aes(x = term, y = lpval)) +
+  geom_col(alpha = 0.5, colour = 'grey20') +
+  labs(x = '', y = bquote(bold(-log[10](p-value[ANOVA])))) +
+  theme_pub() +
+  theme(legend.position = 'none',
+        axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+ggsave(
+  plot = covar_anova_p,
+  filename = file.path('..', 'figures_supp', 'S8.- ANOVA from covariates.png'), 
+  height = 5, width = 10)
+```
+
+```{r}
+blood_pc_anova_p <- covar_anova |>
+  filter(grepl('Blood', term)) |> 
+  ggplot(aes(x = term, y = lpval)) +
+  geom_col(alpha = 0.5, colour = 'grey20', linewidth = 0.75) +
+  labs(x = '', y = bquote(bold(-log[10](p-value[ANOVA])))) +
+  theme_pub() +
+  theme(aspect.ratio = 0.75, 
+        legend.position = 'none',
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+```
+
+### Contribution to Blood PCs
+
+```{r}
+load(file.path(root_fd, 'data', 'pheno', 'ukb_blood_pcs.Rdata'))
+```
+
+```{r}
+blood_pc_contr_p <- ukb_pheno_blood_pcs$var$contrib |>
+  as_tibble(rownames = 'Cell Type') |>
+  pivot_longer(-`Cell Type`, names_to = 'Dim', values_to = 'Mag') |>
+  ggplot() +
+  geom_tile(aes(x = Dim, y = `Cell Type`, fill = Mag),
+            colour = 'black', size = 1) +
+  scale_fill_distiller('',
+                       limits = c(0, 100),
+                       palette = "Greys", direction = 1) +
+  labs(x = '', y = '') +
+  theme_pub() +
+  theme(aspect.ratio = 1, 
+        panel.border = element_blank(),
+        panel.spacing = unit(-10, 'lines'),
+        axis.ticks = element_blank())
+```
+
+```{r}
+blood_pc_p <- ((
+  blood_pc_anova_p + 
+    theme(
+      axis.ticks.length.x = unit(0, "pt"),
+      plot.margin = unit(c(5.5, 5.5, -10, 5.5), 'pt'))) /(
+  blood_pc_contr_p + 
+    theme(
+       plot.margin = unit(c(-10, 5.5, 5.5, 5.5), 'pt'))))
+```
+
+```{r}
+ggsave(
+  plot = blood_pc_p,
+  filename = file.path('..', 'figures_supp', 'S8.- Blood PCs.png'), 
+  height = 6.5, width = 5.5)
+```
+
+```{r}
+blood_pc_var_p <- ukb_pheno_blood_pcs$eig |> as.data.frame() |>
+  rownames_to_column('PC') |>
+  mutate(PC = gsub('comp', 'Dim. ', PC)) |> 
+  ggplot(aes(x = PC, y = `percentage of variance`)) +
+  geom_col(colour = 'black', fill = 'grey20', alpha = 0.5, linewidth = 0.75) + 
+  scale_y_continuous(limits = c(0, 50), 
+                     breaks = c(0, 25, 50),
+                     labels = c('', 25, 50)) +
+  labs(x = '',
+       y = '% Variance') +
+  theme_pub()
+```
+
+```{r}
+ggsave(
+  plot = blood_pc_var_p,
+  filename = file.path('..', 'figures_supp', 'S8 - Blood PC variance.png'), 
+  height = 3, width = 5)
+```
+
+### Joint 
+
+```{r}
+ggsave(
+  plot = (blood_pc_contr_p | blood_pc_var_p),
+  filename = file.path('..', 'figures_supp', 'S8.- Blood PC, first row.png'), 
+  height = 5, width = 10)
+```
