@@ -1,0 +1,1023 @@
+---
+title: "Figure 1.- rDNA CN Characterisation"
+---
+
+```{r setup}
+source('0.0.- Setup.R')
+```
+
+## B.- 1000 Genomes Validation
+
+## Conventional vs UKB-Style
+
+```{r gbr_18s}
+gbr_18s_counts <- bind_rows(
+  lapply(
+    X = list.files(
+      file.path(root_fd, '..', '1000g', 'data', 'gbr_counts_all_18s'),
+      full.names = TRUE),
+    FUN = function(x) read_csv(x, col_types = cols()) |>
+      rename(sample = eid) |>
+      relocate(sample)))
+```
+
+```{r gbr_chr}
+gbr_chr_counts <- bind_rows(
+  lapply(
+    X = list.files(
+      file.path(root_fd, '..', '1000g', 'data', 'gbr_counts_chr'),
+      full.names = TRUE),
+    FUN = function(x) read_tsv(x, col_types = cols()) |>
+      filter(chr %in% paste0('chr', 1:22)) |>
+      mutate(sample = gsub('.tsv', '', basename(x))) |>
+      relocate(sample))) |>
+  group_by(sample) |>
+  summarise(num_reads = sum(mapped))
+```
+
+```{r gbr_ratios}
+gbr_ratios <- gbr_18s_counts |>
+  inner_join(gbr_chr_counts, by = 'sample',
+             suffix = c('_18s', '_wg')) |>
+  mutate(ratio_18s = num_reads_18s / num_reads_wg)
+```
+
+```{r total_cn_hall}
+hall_gbr <- read_tsv(
+  file.path(root_fd, '..', '1000g', 'data', 'hall_cn.txt'),
+  col_types = cols()) |>
+  filter(Continent == 'EUROPEAN') |>
+  inner_join(
+    read_csv(
+    file.path(root_fd, '..', '1000g', 'data', 'gbr.txt'),
+    col_names = 'Sample',
+    col_types = cols()),
+    by = 'Sample')
+
+hall_gbr_cn <- hall_gbr |>
+  select(sample = 'Sample',
+         `45S`=`HC.18S.CN`, `5S`=`HC.5S.CN`)
+```
+
+```{r gbr_cn}
+gbr_cn <- read_csv(
+  file.path(root_fd, '..', '1000g', 'data', 'gbr_cn', 'cn.csv'),
+  col_types = cols())
+```
+
+```{r gbr_cn_p}
+cn_estimation_comparison_p <- gbr_ratios |>
+    inner_join(gbr_cn, by = 'sample') |>
+  ggplot(aes(x = cn_18s, y = ratio_18s)) +
+  geom_point(shape = 21,  size = 2, alpha = 0.5,
+             stroke = 1, fill = 'grey50', colour = 'black') +
+  geom_smooth(
+    formula = 'y ~ x',
+    method = 'lm',
+    alpha = 0.1,
+    linewidth = 0.75,
+    colour = 'grey30') +
+  ggpubr::stat_cor(aes(
+    label = cor_format(..r.., ..p..))) +
+  scale_x_continuous(
+    limits = c(0, 600),
+    breaks = c(0, 300, 600),
+    labels = c('', 300, 600)) +
+  scale_y_continuous(
+    limits = c(0, 3e-4),
+    breaks = c(0, 1e-4, 2e-4, 3e-4),
+    labels = fancy_scientific) +
+  labs(x = 'Conventional 47S rDNA CN Estimate',
+       y = 'UKB-Style 47S rDNA CN Estimate\n("18S Ratio")') +
+  theme_pub() +
+  theme(aspect.ratio = 1)
+```
+
+```{r}
+ggsave(
+  plot = cn_estimation_comparison_p,
+  filename = file.path('..', 'figures', '1.B.- 1000g Comparison.png'), 
+  height = 5, width = 5.5)
+```
+
+
+## C.- Range of Equivalent Total CN Estimates
+
+### Ratios
+
+```{r}
+ukb_47s_wb <- read_csv(
+  file.path(root_fd, 'data', 'cn', 'ukb_47s_wb.csv'),
+  col_types = cols())
+```
+
+```{r read_baseline}
+baseline <- read_csv(
+  file.path(root_fd, '..', 'data', 'ref', 'hg38_chromosome_sizes.csv'),
+  col_types = cols()) |>
+  summarise(total_size = sum(size)) |>
+  pull(total_size)
+```
+
+```{r total_cn_wb_wide}
+cn_total_comparison_wp <- ukb_47s_wb |>
+  select(eid, rdna, wg) |>
+  mutate(cn = (rdna / 1871) / (wg / baseline)) |>
+  select(eid, cn) |>
+  mutate(cohort = 'UKB WB') |>
+  bind_rows(
+    hall_gbr_cn |>
+      select(cn = `45S`) |>
+      mutate(cohort = '1000g GBR')) |>
+  group_by(cohort) |>
+  mutate(cohort = paste0(cohort, '\n',
+    "[N = ", 
+    format(n(), big.mark = ","), "]")) |> 
+  ggplot(aes(x = cohort, y = cn, fill = cohort)) +
+  geom_boxplot(
+    notch = TRUE,
+    outlier.shape = 21,
+    outlier.size = 0.3,
+    outlier.alpha = 0.3,
+    size = 0.75) +
+  ggpubr::stat_compare_means(
+    comparisons = list(
+      c(1, 2)),
+    label.y = 825) +
+  scale_fill_brewer(palette = 'Greys') +
+  scale_y_continuous(
+    limits = c(0, 900),
+    breaks = c(0, 400, 800),
+    labels = c('', 400, 800)) +
+  labs(x = '',
+       y = 'Estimated Number of rDNA Copies') +
+  theme_pub() +
+  theme(legend.position = 'none') 
+```
+
+
+```{r}
+ggsave(
+  plot = cn_total_comparison_wp,
+  filename = file.path('..', 'figures', '1.C.- Total CN Comparison.png'), 
+  height = 4.75, width = 3.5)
+```
+
+## D.- Sequencing centre
+
+```{r}
+ukb_47s <- read_csv(
+  file.path(root_fd, 'data', 'cn', 'ukb_47s.csv'),
+  col_types = cols())
+```
+
+```{r read_sr}
+ukb_sr <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_sr.csv'),
+  col_types = cols())
+```
+
+```{r sr_cn_wide}
+sr_wp <- ukb_sr |>
+  inner_join(ukb_47s, by = 'eid') |>
+  group_by(`Seq Release`) |> 
+  mutate(N = paste0(
+    "[N = ", 
+    format(n(), big.mark = ","), "]")) |> 
+  mutate(`Seq Release` = paste0(`Seq Release`, '\n', N)) |>
+  ggplot(aes(x = `Seq Release`, y = CN)) +
+  geom_boxplot(
+    aes(fill = `Seq Release`),
+    outlier.alpha = 0.3,
+    outlier.size = 0.3,
+    outlier.shape = 21,
+    size = 0.75,
+    notch = T) +
+  ggpubr::stat_compare_means(
+    comparisons = list( c(1, 2), c(2, 3), c(1, 3)),
+    label.y = c(5.4e-4, 5.4e-4, 5.8e-4)) +
+  labs(x = '',
+       y = '18S Ratio') +
+  scale_y_continuous(limits = c(0, 6.2e-4),
+                     breaks = c(0, 3e-4, 6e-4),
+                     labels = fancy_scientific) +
+  scale_fill_brewer('', palette = 'Greens') +
+  theme_pub() +
+  theme(legend.position = 'none') 
+```
+
+
+```{r}
+ggsave(
+  plot = sr_wp,
+  filename = file.path('..', 'figures', '1.D.- Sequencing Releases.png'), 
+  height = 5, width = 5)
+```
+
+
+## S2.- Adjustment by Sequencing Centre
+
+```{r adj_cn_diff}
+ukb_adj_47s_diff <- ukb_47s %>%
+  inner_join(ukb_sr, by = 'eid') |> 
+  mutate(
+    predicted = predict(
+      lm(CN ~ `Seq Centre`)),
+    adjustment = predicted - min(predicted),
+    adj_CN = CN - adjustment) %>%
+  filter(eid %in% ukb_47s_wb$eid)
+```
+
+```{r}
+ukb_adj_47s_diff |>
+  select(eid, adj_CN) |>
+  write_csv(
+    file.path(root_fd, 'data', 'cn', 'ukb_adj_cn_wb.csv'),
+    na = '')
+```
+
+```{r adj_cn_diff_p}
+adj_cn_diff_p <- ukb_adj_47s_diff |>
+  ggplot(aes(x = `Seq Centre`, y = adj_CN)) +
+  geom_boxplot(
+    aes(fill = `Seq Centre`),
+    outlier.alpha = 0.3,
+    outlier.size = 0.3,
+    outlier.shape = 21,
+    size = 0.75,
+    notch = T) +
+  ggpubr::stat_compare_means(
+    comparisons = list(
+      c('deCODE', 'Sanger'))) + 
+  scale_y_continuous(limits = c(0, 6e-4),
+                     breaks = c(0, 3e-4, 6e-4),
+                     labels = fancy_scientific) +
+  labs(x = '',
+       y = 'SC-Adjusted 18S Ratio') +
+  scale_fill_brewer('', palette = 'Greens') +
+  theme_pub() +
+  theme(legend.position = 'none',
+        aspect.ratio = 1) 
+```
+
+```{r adj_cn_diff_save}
+ggsave(
+  plot = adj_cn_diff_p,
+  filename = file.path('..', 'figures_supp', 'S2.- Adjusted CN.png'), 
+  height = 5, width = 5)
+```
+
+
+## E.- Self-reported Ethnic Background
+
+```{r}
+ukb_demo <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_demo.csv'),
+  col_types = cols())
+```
+
+```{r read_sr}
+ukb_sr <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_sr.csv'),
+  col_types = cols())
+```
+
+```{r}
+ukb_ac <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_ac.csv'),
+  col_types = cols())
+```
+
+```{r}
+ukb_atl <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_adj_tl.csv'),
+  col_types = cols())
+```
+
+
+```{r eth}
+ukb_eth <- ukb_demo |>
+  mutate(eth_super_num = substr(as.character(Eth_Back), 1, 1)) |>
+  group_by(eth_super_num) |>
+    mutate(
+      Eth_Super = factor(
+        case_when(
+          eth_super_num == '1' ~ 'White',
+          eth_super_num == '2' ~ 'Mixed',
+          eth_super_num == '3' ~ 'Asian or Asian British',
+          eth_super_num == '4' ~ 'Black or Black British',
+          eth_super_num == '5' ~ 'Chinese',
+          TRUE ~ 'Other ethnic group'))) |>
+  ungroup() |>
+  mutate(Eth_Super = forcats::fct_infreq(Eth_Super)) 
+```
+
+```{r cn_eth}
+ukb_eth_cn <- ukb_eth |> 
+  inner_join(ukb_47s, by = 'eid') |>
+  inner_join(ukb_sr, by = 'eid') |>
+  inner_join(ukb_ac, by = 'eid') |>
+  inner_join(ukb_atl, by = 'eid') |>
+  mutate(`Age Sq` = Age * Age)
+```
+
+```{r}
+broom::tidy(
+  car::Anova(lm(CN ~ Sex + Age + `Age Sq` +
+                  `Seq Centre` + `As Centre` + 
+                  `Adj TL` + Eth_Super,
+              data = ukb_eth_cn)))
+```
+
+
+```{r }
+ukb_eth_sr <- ukb_eth_cn |>
+  group_by(Eth_Super, `Seq Centre`) |>
+  summarise(value = mean(CN),
+            SD = sd(CN),
+            N = n_distinct(eid),
+            margin = qt(ci, df=N-1)*SD/sqrt(N),
+            value_low = value - margin,
+            value_high = value + margin,
+            .groups = 'drop')
+```
+
+```{r eth}
+eth_p <- ukb_eth_sr |>
+  mutate(
+    eth = forcats::fct_rev(
+      forcats::fct_relevel(
+        Eth_Super, 
+        c('White', 'Black or Black British', 'Asian or Asian British',
+          'Chinese', 'Mixed', 'Other ethnic group')))) |>
+  ggplot(aes(y = eth)) +
+  geom_crossbar(aes(x = value, xmin = value_low, xmax = value_high, fill = eth),
+                    fatten = 1.5, linewidth = 0.75,  color = 'grey20',) +
+  facet_grid(cols = vars(`Seq Centre`)) +
+  scale_fill_brewer(palette = 'Blues') +
+  scale_x_continuous(limits = c(1.45e-4, 2.3e-4),
+                     breaks = c(1.5e-4, 2.0e-4),
+                     labels = fancy_scientific) +
+  labs(x = bquote(bold("18S Ratio (Mean " %+-% " 95% CI)")),
+       y = '') +
+  theme_pub() +
+  theme(legend.position = 'none',
+        axis.text.y = element_text(size = 12))
+```
+
+```{r}
+ggsave(
+  plot = eth_p,
+  filename = file.path('..', 'figures', '1.E.- Ethnicities.png'), 
+  height = 4.5, width = 5.5)
+```
+
+## C,D,E.- Joint Row
+
+```{r}
+ggsave(
+  plot = (cn_total_comparison_wp | sr_wp | eth_p) +
+    plot_layout(widths = c(0.25, 0.35, 0.4)),
+  filename = file.path('..', 'figures', '1.C, D, E.png'), 
+  height = 5, width = 14)
+```
+
+## S3.- ANOVA
+
+```{r}
+ukb_gwas_covars <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_gwas_covars.csv'),
+  col_types = cols())
+```
+
+```{r}
+covars_lm <- lm(CN ~ . , ukb_gwas_covars |>
+       select(-eid, -Height, 
+              -starts_with('Blood')))
+```
+
+```{r}
+broom::tidy(covars_lm)
+```
+
+
+```{r}
+(covar_anova_no_blood <- car::Anova(
+  covars_lm) |>
+  broom::tidy() |> 
+  mutate(lpval = -log10(p.value)) |>
+  filter(term != 'Residuals') |>
+  mutate(term = fct_inorder(gsub('`', '', term))))
+```
+
+
+```{r}
+covar_anova_no_blood_p <- covar_anova_no_blood |>
+  ggplot(aes(x = term, y = lpval)) +
+  geom_col(alpha = 0.5, colour = 'grey20', linewidth = 1) +
+  labs(x = '', y = bquote(bold(-log[10](p-value[ANOVA])))) +
+  theme_pub() +
+  theme(legend.position = 'none',
+        axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+ggsave(
+  plot = covar_anova_no_blood_p,
+  filename = file.path('..', 'figures_supp',
+                       'S3.- ANOVA from covariates, no blood.png'), 
+  height = 4.5, width = 8)
+```
+
+## S4.- Age
+
+```{r age_sex_cn}
+ukb_sr_cn_age_sex <- ukb_sr |>
+  inner_join(ukb_47s, by = 'eid') |>
+  inner_join(ukb_demo, by = 'eid')
+```
+
+```{r age_cn_wb_p}
+age_p <- ukb_sr_cn_age_sex |>
+  filter(Eth_Back_Gen == 1, Eth_Back == 1001) |>
+  ggplot(aes(x = Age, y = CN)) +
+  geom_point(alpha = 0.3, size = 0.3) +
+  geom_smooth(
+    formula = 'y ~ x',
+    method = 'lm',
+    alpha = 0.1,
+    linewidth = 0.75,
+    colour = 'grey30') +
+  facet_grid(rows = vars(`Seq Centre`)) +
+  ggpubr::stat_cor(
+    aes(label = cor_format(..r.., ..p..)), label.y = 5.7e-4) +
+  labs(x = 'Age at Recruitment',
+       y = '18S Ratio') +
+  scale_y_continuous(limits = c(0, 6e-4),
+                     breaks = c(0, 3e-4, 6e-4),
+                     labels = fancy_scientific) +
+  theme_pub() +
+  theme(legend.position = 'none') 
+```
+
+```{r}
+ggsave(
+  plot = age_p,
+  filename = file.path('..', 'figures_supp', 'S4.- Age.png'), 
+  height = 7, width = 10)
+```
+
+## S6.- Sex
+
+```{r sex_cn_wb_p}
+sex_p <- ukb_sr_cn_age_sex |>
+  filter(Eth_Back_Gen == 1, Eth_Back == 1001) |>
+  ggplot(aes(x = Sex, y = CN)) +
+  geom_boxplot(
+    aes(fill = Sex),
+    outlier.alpha = 0.3,
+    outlier.size = 0.3,
+    outlier.shape = 21,
+    notch = T,
+    size = 0.75) +
+  facet_grid(cols = vars(`Seq Centre`)) +
+  ggpubr::stat_compare_means(
+    comparisons = list(c('Male', 'Female')),
+    label.y = 5.4e-4) +
+  labs(x = 'Sex', y = '18S Ratio') +
+  scale_y_continuous(limits = c(0, 6e-4),
+                     breaks = c(0, 3e-4, 6e-4),
+                     labels = fancy_scientific) +
+  scale_fill_brewer('', palette = 'Purples') +
+  theme_pub() +
+  theme(legend.position = 'none')
+```
+
+```{r}
+ggsave(
+  plot = sex_p,
+  filename = file.path('..', 'figures_supp',
+                       'S6.- Sex.png'), 
+  height = 5, width = 8)
+```
+
+## F.- Relatives (adjusted for sequencing centre)
+
+```{r}
+ukb_rel_dist <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_rel_dist.csv'),
+  col_types = cols()) |>
+  select(rel_type = dist, eid_1 = ID1, eid_2 = ID2) |>
+  mutate(rel_type = forcats::fct_relevel(rel_type, 'MZ Twins'))
+```
+
+```{r rel_dist_adj_diff_47s}
+ukb_rel_dist_adj_47s_diff <- ukb_rel_dist |>
+  inner_join(
+    ukb_adj_47s_diff |> select(eid, CN = adj_CN),
+    by = c('eid_1' = 'eid')) |>
+  inner_join(
+    ukb_adj_47s_diff |> select(eid, CN = adj_CN),
+    by = c('eid_2' = 'eid'), suffix = c('_1', '_2'))
+```
+
+```{r}
+ukb_rel_dist_adj_47s_diff |> pull(rel_type) |> table()
+```
+
+
+```{r rel_dist_47s_p}
+ukb_rel_dist_adj_47s_diff_p <- ukb_rel_dist_adj_47s_diff |> 
+  mutate(rel_type = case_when(
+    grepl('MZ', rel_type) ~ 'Monozygotic Twins\n[N = 26 pairs]',
+    grepl('First', rel_type) ~ 'First-Degree Relatives\n[N = 4,176 pairs]',
+    grepl('Second', rel_type) ~ 'Second-Degree Relatives\n[N = 1,560 pairs]',
+    TRUE ~ 'Third-Degree Relatives\n[N = 9,394 pairs]'),
+    rel_type = forcats::fct_relevel(
+      rel_type,
+      'Monozygotic Twins\n[N = 26 pairs]' )) |>
+  ggplot(aes(x=CN_1, y=CN_2)) +
+  ggrastr::geom_point_rast(alpha = 0.3, size = 1, shape = 21,
+             stroke = 0.75, fill = 'grey50', colour = 'black') +
+  geom_smooth(formula = 'y ~ x',
+              method = 'lm', 
+              alpha = 0.1, 
+              colour = 'grey30', 
+              linewidth = 0.75) +
+  facet_grid(cols = vars(rel_type)) +
+  ggpubr::stat_cor(aes(
+    label = cor_format(..r.., ..p..)),
+    size = 5) +
+  labs(x = 'SC-Adjusted 18S Ratio for "Relative 1"',
+       y = 'SC-Adjusted 18S Ratio\nfor "Relative 2"') +
+  scale_x_continuous(limits = c(0, 4.5e-4),
+                     breaks = c(0, 2e-4, 4e-4),
+                     labels = fancy_scientific) +
+  scale_y_continuous(limits = c(0, 4.5e-4),
+                     breaks = c(0, 2e-4, 4e-4),
+                     labels = fancy_scientific) +
+  theme_pub() +
+  theme(aspect.ratio = 1,
+        axis.title = element_text(size = 20),
+        axis.text = element_text(size = 16),
+        strip.text = element_text(size = 18))
+```
+
+```{r rel_dist_adj_47s_diff_save}
+ggsave(
+  plot = ukb_rel_dist_adj_47s_diff_p,
+  filename = file.path('..', 'figures', '1.F. - Relatives by distance.png'),
+  units = 'in', width = 16, height = 5)
+```
+
+## S5.- Difference of means in first-degree relatives
+
+```{r}
+ukb_types_cn_adj <- read_csv(
+    file.path(root_fd, 'data', 'pheno', 'ukb_rel_first_type.csv'),
+    col_types = cols()) |>
+  inner_join(ukb_adj_47s_diff, by = c('eid_o' = 'eid')) |>
+  inner_join(ukb_adj_47s_diff, by = c('eid_y' = 'eid'), suffix = c('_o', '_y'))
+```
+
+```{r}
+ukb_cn_comp_o_y_p <- ukb_types_cn_adj |>
+  filter(rel_type != 'Twin') |>
+  select(rel_type, Older = adj_CN_o, Younger = adj_CN_y) |>
+  pivot_longer(-rel_type, names_to = 'Participant', values_to = 'adj_CN') |>
+  ggplot(aes(x = Participant, y = adj_CN, fill = Participant)) +
+  geom_boxplot(outlier.alpha = 0.6, outlier.shape = 21, linewidth = 0.75) +
+  ggpubr::stat_compare_means(paired = TRUE, comparisons = list(c(1, 2))) +
+  facet_grid(cols = vars(rel_type)) +
+  scale_y_continuous(limits = c(0, 6e-4),
+                     breaks = c(0, 3e-4, 6e-4),
+                     labels = fancy_scientific) +
+  scale_fill_brewer(palette = 'Greys') +
+  labs(y = 'SC-Adjusted 18S Ratio') +
+  theme_pub() +
+  theme(legend.position = 'none')
+```
+
+```{r}
+ggsave(
+  plot = ukb_cn_comp_o_y_p,
+  filename = file.path('..', 'figures_supp',
+                       'S5.- Older-Younger relative comparison.png'),
+  units = 'in', width = 10, height = 5)
+```
+
+## G.- GWAS 
+
+### Complete dataset with `--modelSnps`
+
+```{r gwas_cn_msnps}
+bolt_lmm_cn <- read_tsv(
+  file.path(root_fd, 'data', 'gwas_imp', 'cn_msnps.tsv'),
+  col_types = cols()) |> 
+  mutate(pval=P_BOLT_LMM_INF) |>
+  select(snp=SNP, chr=CHR, pos=BP, pval=P_BOLT_LMM_INF) 
+```
+
+```{r}
+bolt_lmm_cn_chisq <- qchisq(1-bolt_lmm_cn$pval, 1)
+
+median(bolt_lmm_cn_chisq)/qchisq(0.5,1)
+```
+
+```{r manhattan_setup}
+manhattan_cn <- bolt_lmm_cn |>
+  mutate(lpval = -log10(pval)) |>  
+  mutate(pcol = case_when(
+    pval < 5e-8 ~ 'sig', 
+    (chr %% 2) == 0 ~ 'even',
+    TRUE ~ 'odd')) 
+```
+
+```{r manhattan_plot}
+manhattan_cn_p <- manhattan_cn |>
+  ggplot(aes(x = pos, y = lpval)) +
+  ggrastr::geom_point_rast(aes(colour = pcol), size = 0.2) +
+  geom_hline(yintercept = -log10(5e-8),
+             colour = 'firebrick3',
+             linetype = 'dashed') +
+  facet_grid(cols = vars(chr),
+             scales = 'free',
+             space = 'free_x') +
+  scale_colour_manual(
+    values = c('sig' = 'chartreuse3',
+               'odd' = 'grey30',
+               'even' = 'grey60')) +
+  scale_y_continuous(limits = c(0, 8)) +
+  labs(x = '', y = bquote(bold(-log[10](p-value)))) +
+  theme_pub() +
+  theme(
+    legend.position = 'none',
+    panel.spacing.y = unit(0.3, 'lines'),
+    panel.spacing.x = unit(0.05, 'lines'),
+    panel.border = element_blank(),
+    strip.background.x = element_rect(linewidth = 1.1),
+    strip.text.y = element_text(size = 10),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.line.y.left = element_line(),
+    strip.text.x = element_text(size = 7),
+    axis.text.y = element_text(size = 10),
+    axis.title.y = element_text(size = 12))
+```
+
+```{r manhattan_cn_save, eval = F}
+ggsave(
+  plot = manhattan_cn_p,
+  filename = file.path('..', 'figures', '2.G.- Manhattan CN.png'), 
+  height = 2, width = 12, units = 'in')
+```
+
+
+### Supplementary: Unrelated individuals
+
+```{r gwas_cn_unrel}
+bolt_lmm_cn_unrel <- read_tsv(
+  file.path(root_fd, 'data', 'gwas_imp', 'cn_msnps_unrel.tsv'),
+  col_types = cols()) |> 
+  mutate(pval=P_BOLT_LMM_INF) |>
+  select(snp=SNP, chr=CHR, pos=BP, pval=P_BOLT_LMM_INF) 
+```
+
+
+```{r}
+bolt_lmm_cn_unrel_chisq <- qchisq(1-bolt_lmm_cn_unrel$pval, 1)
+
+median(bolt_lmm_cn_unrel_chisq)/qchisq(0.5,1)
+```
+
+```{r}
+manhattan_cn_unrel <- bolt_lmm_cn_unrel |>
+  mutate(lpval = -log10(pval)) |>  
+  mutate(pcol = case_when(
+    pval < 5e-8 ~ 'sig', 
+    (chr %% 2) == 0 ~ 'even',
+    TRUE ~ 'odd')) 
+```
+
+```{r manhattan_plot_unrel}
+manhattan_cn_unrel_p <- manhattan_cn_unrel |>
+  ggplot(aes(x = pos, y = lpval)) +
+  ggrastr::geom_point_rast(aes(colour = pcol), size = 0.2) +
+  geom_hline(yintercept = -log10(5e-8),
+             colour = 'firebrick3',
+             linetype = 'dashed') +
+  facet_grid(cols = vars(chr),
+             scales = 'free',
+             space = 'free_x') +
+  scale_colour_manual(
+    values = c('sig' = 'chartreuse3',
+               'odd' = 'grey30',
+               'even' = 'grey60')) +
+  scale_y_continuous(limits = c(0, 8)) +
+  labs(x = '', y = bquote(bold(-log[10](p-value)))) +
+  theme_pub() +
+  theme(
+    legend.position = 'none',
+    panel.spacing.y = unit(0.3, 'lines'),
+    panel.spacing.x = unit(0.05, 'lines'),
+    panel.border = element_blank(),
+    strip.background.x = element_rect(linewidth = 1.1),
+    strip.text.y = element_text(size = 10),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.line.y.left = element_line(),
+    strip.text.x = element_text(size = 7),
+    axis.text.y = element_text(size = 10),
+    axis.title.y = element_text(size = 12))
+```
+
+```{r manhattan_cn_unrel_save, eval = F}
+ggsave(
+  plot = manhattan_cn_unrel_p,
+  filename = file.path('..', 'figures_supp',
+                       'S9 - Manhattan CN, Unrelated.png'), 
+  height = 2, width = 12, units = 'in')
+```
+
+### Supplementary: No Control for Blood Composition 
+
+```{r gwas_no_blood}
+bolt_lmm_cn_msnps_no_blood <- read_tsv(
+  file.path(root_fd, 'data', 'gwas_imp', 'cn_msnps_no_blood.tsv'),
+  col_types = cols()) |> 
+  mutate(pval=P_BOLT_LMM_INF) |>
+  select(snp=SNP, chr=CHR, pos=BP, pval)
+```
+
+```{r manhattan_cn_no_blood_setup}
+manhattan_cn_no_blood <- bolt_lmm_cn_msnps_no_blood |>
+  mutate(lpval = -log10(pval)) |>  
+  mutate(pcol = case_when(
+    pval < 5e-8 ~ 'sig', 
+    (chr %% 2) == 0 ~ 'even',
+    TRUE ~ 'odd')) 
+```
+
+```{r manhattan_cn_no_blood_plot}
+manhattan_cn_no_blood_p <- manhattan_cn_no_blood |>
+  ggplot(aes(x = pos, y = lpval)) +
+  ggrastr::geom_point_rast(aes(colour = pcol), size = 0.2) +
+  geom_hline(yintercept = -log10(5e-8),
+             colour = 'firebrick3',
+             linetype = 'dashed') +
+  facet_grid(cols = vars(chr),
+             scales = 'free',
+             space = 'free_x') +
+  scale_colour_manual(
+    values = c('sig' = 'chartreuse3',
+               'odd' = 'grey30',
+               'even' = 'grey60')) +
+  scale_y_continuous(limits = c(0, 8)) +
+  labs(x = '', y = bquote(bold(-log[10](p-value)))) +
+  theme_pub() +
+  theme(
+    legend.position = 'none',
+    panel.spacing.y = unit(0.3, 'lines'),
+    panel.spacing.x = unit(0.05, 'lines'),
+    panel.border = element_blank(),
+    strip.background.x = element_rect(linewidth = 1.1),
+    strip.text.y = element_text(size = 10),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.line.y.left = element_line(),
+    strip.text.x = element_text(size = 7),
+    axis.text.y = element_text(size = 10),
+    axis.title.y = element_text(size = 12))
+```
+
+```{r manhattan_cn_no_blood_save, eval = F}
+ggsave(
+  plot = manhattan_cn_no_blood_p,
+  filename = file.path('..', 'figures_supp', 
+                       'S9 - Manhattan CN, No Control for Blood.png'), 
+  height = 2, width = 12, units = 'in')
+```
+
+### Supplementary: Sequencing Centre
+
+```{r gwas_cn_msnps_sc}
+bolt_lmm_cn_sc <- bind_rows(
+  read_tsv(
+    file.path(root_fd, 'data', 'gwas_imp', 'cn_sanger_msnps.tsv'),
+    col_types = cols()) |> 
+    mutate(sc = 'Sanger'),
+  read_tsv(
+    file.path(root_fd, 'data', 'gwas_imp', 'cn_decode_msnps.tsv'),
+    col_types = cols()) |> 
+    mutate(sc = 'deCODE')) |>
+  mutate(pval=P_BOLT_LMM_INF) |>
+  select(snp=SNP, chr=CHR, pos=BP, pval=P_BOLT_LMM_INF, se = SE, beta = BETA, sc) 
+```
+
+```{r manhattan_setup_sc}
+manhattan_cn_sc <- bolt_lmm_cn_sc |>
+  mutate(lpval = -log10(pval)) |>  
+  mutate(pcol = case_when(
+    pval < 5e-8 ~ 'sig', 
+    (chr %% 2) == 0 ~ 'even',
+    TRUE ~ 'odd')) 
+```
+
+```{r manhattan_plot_sc}
+manhattan_cn_sc_p <- manhattan_cn_sc |>
+  ggplot(aes(x = pos, y = lpval)) +
+  ggrastr::geom_point_rast(aes(colour = pcol), size = 0.2) +
+  geom_hline(yintercept = -log10(5e-8),
+             colour = 'firebrick3',
+             linetype = 'dashed') +
+  facet_grid(cols = vars(chr),
+             rows = vars(sc),
+             scales = 'free',
+             space = 'free_x') +
+  scale_colour_manual(
+    values = c('sig' = 'chartreuse3',
+               'odd' = 'grey30',
+               'even' = 'grey60')) +
+  scale_y_continuous(limits = c(0, 8)) +
+  labs(x = '', y = bquote(bold(-log[10](p-value)))) +
+  theme_pub() +
+  theme(
+    legend.position = 'none',
+    panel.spacing.y = unit(0.3, 'lines'),
+    panel.spacing.x = unit(0.05, 'lines'),
+    panel.border = element_blank(),
+    strip.background.x = element_rect(linewidth = 1.1),
+    strip.text.y = element_text(size = 10),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.line.y.left = element_line(),
+    strip.text.x = element_text(size = 7),
+    axis.text.y = element_text(size = 10),
+    axis.title.y = element_text(size = 12))
+```
+
+```{r manhattan_sc_save, eval = F}
+ggsave(
+  plot = manhattan_cn_sc_p,
+  filename = file.path('..', 'figures', 'S9.- Manhattan CN by SC.png'), 
+  height = 4, width = 12, units = 'in')
+```
+
+### Supplementary: Zoom in
+
+```{r}
+bolt_lmm_cn_top_pos <- bolt_lmm_cn |> filter(pval == min(pval)) |> pull(pos)
+```
+
+```{r}
+manhattan_cn_neigh <- bind_rows(
+  bolt_lmm_cn |> filter(chr == 2,
+                      pos > (bolt_lmm_cn_top_pos - 50000),
+                      pos < (bolt_lmm_cn_top_pos + 50000)) |>
+    mutate(sc = 'Sanger + deCODE'),
+  bolt_lmm_cn_sc |> filter(chr == 2,
+                      pos > (bolt_lmm_cn_top_pos - 50000),
+                      pos < (bolt_lmm_cn_top_pos + 50000)))
+```
+
+```{r}
+manhattan_cn_neigh_p <- manhattan_cn_neigh |>
+  mutate(lpval = -log10(pval),
+         pcol = if_else(pos == bolt_lmm_cn_top_pos, 'sig', 'nosig'),
+         sc = forcats::fct_rev(sc)) |>
+  ggplot(aes(x = pos, y = lpval)) +
+  ggrastr::geom_point_rast(aes(fill = pcol),
+                           size = 3, shape = 21,
+                           alpha = 0.7) +
+  geom_hline(yintercept = -log10(5e-8),
+             colour = 'firebrick3',
+             linetype = 'dashed') +
+  facet_grid(rows = vars(sc)) +
+  scale_fill_manual(
+    values = c('sig' = 'red',
+               'nosig' = 'grey60')) +
+  scale_y_continuous(limits = c(0, 8)) +
+  scale_x_continuous(limits = c(bolt_lmm_cn_top_pos - 50000,
+                                bolt_lmm_cn_top_pos + 50000),
+                     breaks = c(96875000, 96925000, 96975000),
+                     labels = c('96,875,000', '96,925,000', '96,975,000')) +
+  labs(x = 'Position in chromosome 2',
+       y = bquote(bold(-log[10](p-value)))) +
+  theme_pub() +
+  theme(
+    legend.position = 'none',
+    panel.spacing.y = unit(0.3, 'lines'),
+    panel.spacing.x = unit(0.05, 'lines'),
+    strip.text.y = element_text(size = 10),
+    axis.line.y.left = element_line(),
+    strip.text.x = element_text(size = 7))
+```
+
+```{r manhattan_top_save, eval = F}
+ggsave(
+  plot = manhattan_cn_neigh_p,
+  filename = file.path('..', 'figures_supp', 
+                       'S9 - Manhattan CN, Neighbourhood.png'), 
+  height = 7, width = 4, units = 'in')
+```
+
+### Supplementary: Top hits per sequencing centre
+
+```{r}
+bolt_lmm_cn_sanger_top <- bolt_lmm_cn_sc |>
+  filter(sc == 'Sanger') |>
+  arrange(pval) |>
+  slice(1:20) |>
+  inner_join(bolt_lmm_cn_sc |>
+               filter(sc == 'deCODE'),
+             by = c('snp', 'chr', 'pos'),
+             suffix = c('_s', '_d')) |>
+  mutate(snp = factor(snp) |>
+      forcats::fct_inorder() |>
+      forcats::fct_rev())
+```
+
+```{r}
+bolt_lmm_cn_sanger_top_p <- bolt_lmm_cn_sanger_top |>
+  select(snp, starts_with('pval')) |>
+  pivot_longer(-snp, values_to = 'pval', names_to = 'sc') |>
+  mutate(sc = if_else(sc == 'pval_s', 'Sanger', 'deCODE')) |>
+  mutate(lpval = -log10(pval)) |>
+  ggplot(aes(x = lpval, y = snp, group = sc)) +
+  geom_col(aes(fill = sc), colour = 'grey20', linewidth = 0.75,
+           width = 0.8, position = position_dodge(width = 0.9)) +
+  geom_vline(xintercept = -log10(5e-8), colour = 'grey60', alpha = 0.8,
+             linewidth = 0.75, linetype = 'dashed') +
+  scale_fill_manual('Sequencing Centre', 
+                    values = c('Sanger' = 'grey50',
+                               'deCODE' = 'grey95')) +
+  labs(y = '', x = bquote(bold(-log[10](p-value)))) +
+  theme_pub() +
+  theme(axis.text.y = element_text(size = 10),
+        plot.title = element_text(size = 12)) +
+  ggtitle('Top Sanger hits')
+```
+
+```{r}
+bolt_lmm_cn_decode_top <- bolt_lmm_cn_sc |>
+  filter(sc == 'deCODE') |>
+  arrange(pval) |>
+  slice(1:20) |>
+  inner_join(bolt_lmm_cn_sc |>
+               filter(sc == 'Sanger'),
+             by = c('snp', 'chr', 'pos'),
+             suffix = c('_d', '_s')) |>
+  mutate(snp = factor(snp) |>
+      forcats::fct_inorder() |>
+      forcats::fct_rev())
+```
+
+```{r}
+bolt_lmm_cn_decode_top_p <- bolt_lmm_cn_decode_top |>
+  select(snp, starts_with('pval')) |>
+  pivot_longer(-snp, values_to = 'pval', names_to = 'sc') |>
+  mutate(sc = if_else(sc == 'pval_s', 'Sanger', 'deCODE')) |>
+  mutate(lpval = -log10(pval)) |>
+  ggplot(aes(x = lpval, y = snp, group = sc)) +
+  geom_col(aes(fill = sc), colour = 'grey20', linewidth = 0.75,
+           width = 0.8, position = position_dodge(width = 0.9)) +
+  geom_vline(xintercept = -log10(5e-8), colour = 'grey60', alpha = 0.8,
+             linewidth = 0.75, linetype = 'dashed') +
+  scale_fill_manual('Sequencing Centre', 
+                    values = c('Sanger' = 'grey50',
+                               'deCODE' = 'grey80')) +
+  labs(y = '', x = bquote(bold(-log[10](p-value)))) +
+  theme_pub() +
+  theme(axis.text.y = element_text(size = 10),
+        plot.title = element_text(size = 12)) +
+  ggtitle('Top deCODE hits')
+```
+
+```{r}
+bolt_lmm_cn_sc_top_p <- (bolt_lmm_cn_sanger_top_p +
+  bolt_lmm_cn_decode_top_p) &
+  theme(legend.position = 'bottom')
+```
+
+```{r}
+ggsave(
+  plot = bolt_lmm_cn_sanger_top_p + theme(
+    legend.position = 'bottom',
+    legend.title = element_text(face = 'bold')),
+  filename = file.path('..', 'figures_supp',
+                       'S9 - Manhattan CN, Top (for legend).png'), 
+  height = 8, width = 7)
+```
+
+```{r}
+ggsave(
+  plot = bolt_lmm_cn_sc_top_p &
+    theme(legend.position = 'none'),
+  filename = file.path('..', 'figures_supp',
+                       'S9 - Manhattan CN, Top (no legend).png'), 
+  height = 7, width = 7)
+```
