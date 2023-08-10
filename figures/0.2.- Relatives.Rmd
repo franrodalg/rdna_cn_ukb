@@ -1,0 +1,300 @@
+---
+title: "0.2.- Identify relatives on the UK Biobank"
+---
+
+```{r setup}
+source('0.0.- Setup.R')
+```
+
+```{r}
+ukb_demo <- read_csv(file.path(root_fd, 'data', 'pheno', 'ukb_demo.csv'),
+                     col_types = cols())
+```
+
+```{r read_47s}
+ukb_47s <- read_csv(file.path(root_fd, 'data', 'cn', 'ukb_ratios.csv'),
+                    col_types = cols()) |>
+  filter(rdna > 0) |>
+  rename(CN = rdna_ratio)
+```
+
+```{r 47s_wb}
+ukb_47s_wb <- ukb_47s |>
+  inner_join(ukb_demo |>
+               select(eid, Eth_Back_Gen, Eth_Back),
+             by = 'eid') |>
+  filter(Eth_Back_Gen == 1, Eth_Back == 1001) |>
+  select(-starts_with('Eth_Back'))
+```
+
+```{r read_relationships}
+ukb_rel <- read_delim(
+  file.path(root_fd, 'data', 'metadata', 'ukb_rel.txt'),
+  col_types = cols(), delim=' ') |>
+  mutate(relation=row_number(),
+         dist = case_when(
+           Kinship > 0.4 ~ 'MZ Twins',
+           Kinship < 0.354 & Kinship >= 0.177  ~ 'First-Degree',
+           Kinship < 0.177 & Kinship >= 0.0884 ~ 'Second-Degree',
+           Kinship < 0.0884 & Kinship >= 0.0442 ~ 'Third-Degree',
+           TRUE ~ 'Unknown'))
+```
+
+```{r}
+ukb_rel |>
+  write_csv(
+    file.path(root_fd, 'data', 'pheno', 'ukb_rel_dist.csv'),
+    na = '')
+```
+
+## All relatives
+
+```{r}
+ukb_rel_ages <-  ukb_rel |>
+  select(eid_1 = ID1, eid_2 = ID2, relation, dist) |>
+  inner_join(ukb_demo |> select(eid, Age, Birth_Year),
+             by = c('eid_1' = 'eid')) |>
+  inner_join(ukb_demo |> select(eid, Age, Birth_Year),
+             by = c('eid_2' = 'eid'),
+             suffix = c('_1', '_2')) |>
+  mutate(
+    eid_o = if_else(Birth_Year_2 > Birth_Year_1, eid_1, eid_2),
+    eid_y = if_else(eid_o == eid_1, eid_2, eid_1),
+    Age_o = if_else(Birth_Year_2 > Birth_Year_1, Age_1, Age_2),
+    Age_y = if_else(eid_o == eid_1, Age_2, Age_1),
+    Birth_Year_o = if_else(Birth_Year_2 > Birth_Year_1, Birth_Year_1, Birth_Year_2),
+    Birth_Year_y = if_else(eid_o == eid_1, Birth_Year_2, Birth_Year_1)) |>
+  select(relation, dist, ends_with(c('_o', 'y')))
+```
+
+```{r}
+ukb_rel_ages |>
+  write_csv(
+    file.path(root_fd, 'data', 'pheno', 'ukb_rel_dist_age.csv'),
+    na = '')
+```
+
+
+
+## First degree relatives
+
+IMPORTANT: 
+Removing "parental" pairs < 10 years of difference
+
+```{r first_pheno}
+ukb_first_pheno <- ukb_rel |>
+  filter(grepl('First', dist)) |>
+  inner_join(
+    ukb_demo |>
+      select(eid,
+             Sex_1=Sex,
+             Birth_Year_1=Birth_Year),
+    by=c('ID1'='eid')) |>
+  inner_join(
+    ukb_demo |>
+      select(eid,
+             Sex_2=Sex,
+             Birth_Year_2=Birth_Year),
+    by=c('ID2'='eid'))
+```
+
+```{r first_types}
+ukb_first_types <- ukb_first_pheno |>
+  mutate(the_diff = Birth_Year_2 - Birth_Year_1,
+         rel_type = if_else(
+           IBS0 < 0.0012, 'Parental', 'Fraternal'),
+         eid_o = if_else(the_diff > 0, ID1, ID2),
+         eid_y = if_else(the_diff > 0, ID2, ID1),
+         Sex_o = if_else(the_diff > 0, Sex_1, Sex_2),
+         Sex_y = if_else(the_diff > 0, Sex_2, Sex_1),
+         Birth_Year_o = if_else(
+           the_diff > 0, Birth_Year_1, Birth_Year_2),
+         Birth_Year_y = if_else(
+           the_diff > 0, Birth_Year_2, Birth_Year_1)) |>
+  filter(rel_type != 'Parental' | abs(the_diff) > 10) |>
+  select(rel_type, Kinship,
+         ends_with('_o'), ends_with('_y')) |>
+  arrange(Birth_Year_o, Birth_Year_y)
+```
+
+```{r first_all_types}
+ukb_types <- bind_rows(
+    ukb_rel |>
+      filter(grepl('MZ', dist)) |>
+      inner_join(
+        ukb_demo |>
+          select(eid,
+                 Sex_1=Sex,
+                 Birth_Year_1=Birth_Year),
+        by=c('ID1'='eid')) |>
+      inner_join(
+        ukb_demo |>
+          select(eid,
+                 Sex_2=Sex,
+                 Birth_Year_2=Birth_Year),
+          by=c('ID2'='eid')) |>
+      mutate(rel_type = 'Twin') |>
+      select(
+        rel_type, eid_o = ID1, Sex_o = Sex_1,
+        Birth_Year_o = Birth_Year_1,
+        eid_y = ID2, Sex_y = Sex_2,
+        Birth_Year_y = Birth_Year_2,
+        Kinship),
+    ukb_first_types) |>
+  arrange(Birth_Year_o, Birth_Year_y)
+```
+
+```{r}
+ukb_types |>
+  write_csv(
+    file.path(root_fd, 'data', 'pheno', 'ukb_rel_first_type.csv'),
+    na = '')
+```
+
+## Trios
+
+```{r trios}
+ukb_trios <- ukb_types |>
+  group_by(eid_y) |>
+  filter(rel_type == 'Parental') |>
+  filter(n_distinct(Sex_o) > 1)  |>
+  ungroup() |>
+  arrange(eid_y, Sex_o) |>
+  select(-rel_type) |>
+  relocate(ends_with('_y'))
+```
+
+```{r}
+ukb_trios |>
+  write_csv(
+    file.path(root_fd, 'data', 'pheno', 'ukb_rel_trios.csv'),
+    na = '')
+```
+
+## Extended Families
+
+```{r}
+ukb_rel_eids_l <- ukb_rel_ages |>
+  group_by(eid_o) |>
+  summarise(Birth_Year_o = unique(Birth_Year_o),
+            eids = list(eid_y),
+            .groups = 'keep') |>
+  mutate(eids = list(c(eid_o, unlist(eids)))) |>
+  pull(eids)
+```
+
+```{r}
+the_rows <- rep(1:length(ukb_rel_eids_l), lengths(ukb_rel_eids_l)) 
+the_cols <- factor(unlist(ukb_rel_eids_l))
+ukb_rel_eids_t <- Matrix::sparseMatrix(
+  i = the_rows, j = as.integer(the_cols),
+  x = TRUE, dimnames = list(NULL, levels(the_cols)))
+
+ukb_rel_eids_c <- Matrix::tcrossprod(ukb_rel_eids_t,
+                                     boolArith = TRUE)
+
+ukb_rel_eids_g <- igraph::clusters(
+  igraph::graph_from_adjacency_matrix(
+    as(ukb_rel_eids_c, "lMatrix")))$membership
+
+ukb_families_l <- tapply(ukb_rel_eids_l,
+                   ukb_rel_eids_g, function(x) sort(unique(unlist(x))))
+```
+
+```{r}
+ukb_families <- as_tibble(
+  setNames(stack(ukb_families_l)[2:1],
+  c('fam_id', 'eid')))
+```
+
+```{r}
+ukb_families |>
+  write_csv(
+    file.path(root_fd, 'data', 'pheno', 'ukb_families.csv'),
+    na = '')
+```
+
+### Supplementary: Hypothetical Example
+
+```{r}
+hyp_by <- tribble(
+  ~eid, ~Birth_Year,
+  'A', 1940,
+  'B', 1965,
+  'C', 1965,
+  'D', 1945,
+  'E', 1930,
+  'F', 1950,
+  'G', 1980,
+  'H', 1935
+)
+
+hyp_rel <- tribble(
+  ~rid, ~eid_1, ~eid_2,
+  1, 'A', 'B',
+  2, 'B', 'C',
+  3, 'C', 'A',
+  4, 'C', 'D',
+  5, 'E', 'F',
+  6, 'E', 'H',
+  7, 'F', 'G',
+  8, 'G', 'E',
+  9, 'G', 'H',
+  10, 'H', 'F'
+)
+
+hyp_rel_by <- hyp_rel |> 
+  inner_join(hyp_by, by = c('eid_1' = 'eid')) |>
+  inner_join(hyp_by, by = c('eid_2' = 'eid'), suffix = c('_1', '_2')) |>
+  mutate(
+    eid_o = if_else(Birth_Year_2 > Birth_Year_1, eid_1, eid_2),
+    eid_y = if_else(eid_o == eid_1, eid_2, eid_1),
+    Birth_Year_o = if_else(Birth_Year_2 > Birth_Year_1, Birth_Year_1, Birth_Year_2),
+    Birth_Year_y = if_else(eid_o == eid_1, Birth_Year_2, Birth_Year_1)) |>
+  select(rid, ends_with(c('_o', 'y'))) |>
+  arrange(Birth_Year_o, eid_o, Birth_Year_y, eid_y)
+```
+
+```{r}
+hyp_rel_eids_l <- hyp_rel_by |>
+  group_by(eid_o) |>
+  summarise(Birth_Year_o = unique(Birth_Year_o),
+            eids = list(eid_y),
+            .groups = 'keep') |>
+  mutate(eids = list(c(eid_o, unlist(eids)))) |>
+  pull(eids)
+```
+
+
+
+```{r}
+hyp_rows <- rep(1:length(hyp_rel_eids_l), lengths(hyp_rel_eids_l))
+```
+
+```{r}
+hyp_cols <- factor(unlist(hyp_rel_eids_l))
+```
+
+```{r}
+hyp_rel_eids_t <- Matrix::sparseMatrix(
+  i = hyp_rows, j = as.integer(hyp_cols),
+  x = TRUE, dimnames = list(paste0('G', unique(hyp_rows)),
+                            levels(hyp_cols)))
+```
+
+```{r}
+hyp_rel_eids_c <- Matrix::tcrossprod(hyp_rel_eids_t,
+                                     boolArith = TRUE)
+```
+
+```{r}
+hyp_rel_eids_g <- igraph::clusters(
+  igraph::graph_from_adjacency_matrix(
+    as(hyp_rel_eids_c, "lMatrix")))$membership
+```
+
+```{r}
+hyp_families_l <- tapply(
+  hyp_rel_eids_l,
+  hyp_rel_eids_g, function(x) sort(unique(unlist(x))))
+```
