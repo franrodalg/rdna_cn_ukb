@@ -1,0 +1,1066 @@
+---
+title: "Validation"
+---
+
+```{r setup}
+source('0.0.- Setup.R')
+```
+
+## A.- PHESANT comparisons
+
+
+### CN
+
+```{r}
+phesant_cn <- read_tsv(
+  file.path(root_fd, 'data', 'phesant',
+            'combined_with_bc', 'cn', 'results-combined.txt'),
+  col_types = cols()) |>
+  clean_phesant()
+```
+
+
+### NLR
+
+```{r}
+phesant_nlr <- read_tsv(
+  file.path(root_fd, 'data', 'phesant',
+            'combined_with_bc', 'nlr', 'results-combined.txt'),
+  col_types = cols()) |>
+  clean_phesant() |>
+  filter(! grepl('Blood count', Path))
+```
+
+```{r}
+phesant_nlr_cn <- phesant_nlr |>
+  inner_join(phesant_cn |>
+               select(
+                 -varType, -starts_with('Cat'), -resType,
+                 -isTraitOfInterest, -description, -Path),
+             by = c('varName'), suffix = c('_nlr', '_cn')) |>
+  relocate(description) |>
+  select(-isTraitOfInterest) |> 
+  relocate(starts_with('res'), .after = 22L) |>
+  relocate(starts_with('Cat'), .after = 22L) |>
+  relocate(Path, .after = 22L)
+```
+
+```{r}
+phesant_nlr_cn |> write_csv(
+  file.path(root_fd, 'data', 'phesant', 'comparisons', 'phesant_nlr_cn.csv'),
+  na = '')
+```
+
+```{r}
+phesant_nlr_cn_p <- phesant_nlr_cn |>
+  mutate(description = case_when(
+    grepl('F06', description) ~ 'F06: Other mental disorders [...]',
+    grepl('D73', description) ~ 'D73: Diseases of spleen',
+    TRUE ~ description)) |> 
+  mutate(variable = 'NLR',
+         fdr_nlr = p.adjust(pvalue_nlr, method = 'fdr'),
+         fdr_cn = p.adjust(pvalue_cn, method = 'fdr'),
+         the_label = if_else(
+           fdr_nlr < 0.01 & fdr_cn < 0.01, 
+           description, '')) |>
+  ggplot(aes(x = -log10(fdr_nlr),
+             y = -log10(fdr_cn))) + 
+  ggrepel::geom_text_repel(aes(label = the_label), seed = 500,
+                           point.size = 2, size = 5,
+                           xlim = c(-log10(0.01), 300),
+                           ylim = c(-log10(0.01), 10)) +
+  ggrastr::geom_point_rast(
+    stroke = 0.75, alpha = 0.5, shape = 21, fill = 'grey20', size = 2) +
+  geom_vline(xintercept = -log10(0.01),
+             colour = 'grey20',
+             alpha = 0.7,
+             linetype = 'dashed') +
+  geom_hline(yintercept = -log10(0.01),
+             colour = 'grey20',
+             alpha = 0.7,
+             linetype = 'dashed') +
+  facet_grid(cols = vars(variable)) +
+  scale_x_continuous(limits = c(0, 300)) +
+  scale_y_continuous(limits = c(0, 10)) +
+  labs(x = bquote(bold(-log[10](FDR[NLR]))),
+       y= bquote(bold(-log[10](FDR[rDNA])))) +
+  theme_pub()
+```
+
+### PLR
+
+```{r}
+phesant_plr <- read_tsv(
+  file.path(root_fd, 'data', 'phesant',
+            'combined_with_bc', 'plr', 'results-combined.txt'),
+  col_types = cols()) |>
+  clean_phesant() |>
+  filter(! grepl('Blood count', Path))
+```
+
+```{r}
+phesant_plr_cn <- phesant_plr |>
+  inner_join(phesant_cn |>
+               select(
+                 -varType, -starts_with('Cat'), -resType,
+                 -isTraitOfInterest, -description, -Path),
+             by = c('varName'), suffix = c('_plr', '_cn')) |>
+  relocate(description) |>
+  select(-isTraitOfInterest) |> 
+  relocate(starts_with('res'), .after = 22L) |>
+  relocate(starts_with('Cat'), .after = 22L) |>
+  relocate(Path, .after = 22L)
+```
+```{r}
+phesant_plr_cn_p <- phesant_plr_cn |> 
+  mutate(variable = 'PLR',
+         fdr_plr = p.adjust(pvalue_plr, method = 'fdr'),
+         fdr_cn = p.adjust(pvalue_cn, method = 'fdr'),
+         the_label = if_else(
+           fdr_plr < 0.01 & fdr_cn < 0.01, 
+           description, '')) |>
+  ggplot(aes(x = -log10(fdr_plr),
+             y = -log10(fdr_cn))) + 
+  ggrepel::geom_text_repel(aes(label = the_label), seed = 1,
+                           point.size = 1, size = 5,
+                           xlim = c(-log10(0.01), Inf),
+                           ylim = c(-log10(0.01), 9.5)) +
+  ggrastr::geom_point_rast(
+    stroke = 0.75, alpha = 0.5, shape = 21, fill = 'grey20', size = 2) +
+  geom_vline(xintercept = -log10(0.01),
+             colour = 'grey20',
+             alpha = 0.7,
+             linetype = 'dashed') +
+  geom_hline(yintercept = -log10(0.01),
+             colour = 'grey20',
+             alpha = 0.7,
+             linetype = 'dashed') +
+  facet_grid(cols = vars(variable)) +
+  scale_x_continuous(limits = c(0, 300)) +
+  scale_y_continuous(limits = c(0, 10)) +
+  labs(x = bquote(bold(-log[10](FDR[PLR]))),
+       y= bquote(bold(-log[10](FDR[rDNA])))) +
+  theme_pub()
+```
+
+### SII
+
+```{r}
+phesant_sii <- read_tsv(
+  file.path(root_fd, 'data', 'phesant',
+            'combined', 'sii', 'results-combined.txt'),
+  col_types = cols()) |>
+  clean_phesant() |>
+  filter(! grepl('Blood count', Path))
+```
+
+```{r}
+phesant_sii_cn <- phesant_sii |>
+  inner_join(phesant_cn |>
+               select(
+                 -varType, -starts_with('Cat'), -resType,
+                 -isTraitOfInterest, -description, -Path),
+             by = c('varName'), suffix = c('_sii', '_cn')) |>
+  relocate(description) |>
+  select(-isTraitOfInterest) |> 
+  relocate(starts_with('res'), .after = 22L) |>
+  relocate(starts_with('Cat'), .after = 22L) |>
+  relocate(Path, .after = 22L)
+```
+
+```{r}
+phesant_sii_cn_p <- phesant_sii_cn |>
+  mutate(description = case_when(
+    grepl('F06', description) ~ 'F06: Other mental disorders [...]',
+    grepl('D73', description) ~ 'D73: Diseases of spleen',
+    TRUE ~ description)) |> 
+  mutate(variable = 'SII',
+         fdr_sii = p.adjust(pvalue_sii, method = 'fdr'),
+         fdr_cn = p.adjust(pvalue_cn, method = 'fdr'),
+         the_label = if_else(
+           fdr_sii < 0.01 & fdr_cn < 0.01, 
+           description, '')) |>
+  ggplot(aes(x = -log10(fdr_sii),
+             y = -log10(fdr_cn))) + 
+  ggrepel::geom_text_repel(aes(label = the_label),
+                           seed = 1000,
+                           size = 5,
+                           point.size = 2,
+                           xlim = c(-log10(0.01), Inf),
+                           ylim = c(-log10(0.01), 9.5)) +
+  ggrastr::geom_point_rast(
+    stroke = 0.75, alpha = 0.5, size = 2, shape = 21, fill = 'grey20') +
+  geom_vline(xintercept = -log10(0.01),
+             colour = 'grey20',
+             alpha = 0.7,
+             linetype = 'dashed') +
+  geom_hline(yintercept = -log10(0.01),
+             colour = 'grey20',
+             alpha = 0.7,
+             linetype = 'dashed') +
+  facet_grid(cols = vars(variable)) +
+  scale_x_continuous(limits = c(0, 300)) +
+  scale_y_continuous(limits = c(0, 10)) +
+  labs(x = bquote(bold(-log[10](FDR[SII]))),
+       y= bquote(bold(-log[10](FDR[rDNA])))) +
+  theme_pub()
+```
+
+## Joined Ratios
+
+```{r}
+phesant_ratios_p <- (
+  (phesant_nlr_cn_p +
+     theme(plot.margin = margin(r=-200))) | 
+  (phesant_plr_cn_p + 
+     theme(axis.text.y = element_blank(),
+           axis.ticks.y = element_blank(),
+           axis.title.y = element_blank(),
+           plot.margin = margin(r=-200, l = -200))) | 
+  (phesant_sii_cn_p + 
+     theme(axis.text.y = element_blank(),
+           axis.ticks.y = element_blank(),
+           axis.title.y = element_blank(),
+           plot.margin = margin(l=-200)))
+)
+```
+
+```{r}
+ggsave(
+  plot = phesant_ratios_p,
+  filename = file.path('..', 'figures', '3.A.- PHESANT ratios.png'), 
+  height = 4, width = 16)
+```
+
+```{r}
+find_overlaps <- function(th) {
+  bind_rows(
+  phesant_nlr_cn |>
+    mutate(ratio = 'NLR',
+           fdr_ratio= p.adjust(pvalue_nlr, method = 'fdr'),
+           fdr_cn = p.adjust(pvalue_cn, method = 'fdr')),
+  phesant_sii_cn |>
+    mutate(ratio = 'SII',
+           fdr_ratio= p.adjust(pvalue_sii, method = 'fdr'),
+           fdr_cn = p.adjust(pvalue_cn, method = 'fdr')),
+  phesant_plr_cn |>
+    mutate(ratio = 'PLR',
+           fdr_ratio= p.adjust(pvalue_plr, method = 'fdr'),
+           fdr_cn = p.adjust(pvalue_cn, method = 'fdr'))) |>
+    filter(fdr_cn < th, fdr_ratio < th) |>
+    arrange(fdr_cn) |>
+    select(description) |>
+    distinct()
+}
+```
+
+
+```{r}
+ratio_overlaps <- bind_rows(
+  phesant_nlr_cn |>
+    mutate(ratio = 'NLR',
+           fdr_ratio= p.adjust(pvalue_nlr, method = 'fdr'),
+           fdr_cn = p.adjust(pvalue_cn, method = 'fdr')),
+  phesant_sii_cn |>
+    mutate(ratio = 'SII',
+           fdr_ratio= p.adjust(pvalue_sii, method = 'fdr'),
+           fdr_cn = p.adjust(pvalue_cn, method = 'fdr')),
+  phesant_plr_cn |>
+    mutate(ratio = 'PLR',
+           fdr_ratio= p.adjust(pvalue_plr, method = 'fdr'),
+           fdr_cn = p.adjust(pvalue_cn, method = 'fdr'))) |>
+    filter(fdr_cn < 0.1, fdr_ratio < 0.1) |>
+  select(ratio, description, fdr_ratio, fdr_cn)
+```
+
+
+## B.- Subpopulations Significance
+
+### Covariates
+
+```{r}
+ukb_gwas_covars <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_gwas_covars.csv'),
+  col_types = cols())
+```
+
+```{r}
+ukb_blood_counts <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_blood_counts.csv'),
+  col_types = cols())
+```
+
+```{r}
+ukb_covars_bc <- ukb_gwas_covars |>
+  inner_join(ukb_blood_counts, by = 'eid') |>
+  select(-Height, -starts_with('Blood'))
+```
+
+```{r}
+ukb_demo <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_demo.csv'),
+  col_types = cols())
+```
+
+```{r}
+ukb_br <- read_csv(
+    file.path(root_fd, 'data', 'pheno', 'ukb_blood_ratios.csv'),
+    col_types = cols())
+```
+
+```{r}
+ukb_covars_br <- ukb_gwas_covars |> 
+  inner_join(ukb_br, by = 'eid')
+```
+
+### Subpopulations
+
+#### Filtered
+
+```{r}
+ukb_filtered <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'filt_covars_wb.csv'),
+  col_types = cols())
+```
+
+```{r}
+ukb_bc_filt <- ukb_covars_bc |> filter(
+  eid %in% ukb_filtered$eid)
+```
+
+#### Unrelated
+
+```{r}
+ukb_families <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_families.csv'),
+  col_types = cols())
+```
+
+```{r}
+ukb_demo_unrel <- bind_rows(
+  ukb_demo |>
+    inner_join(ukb_families, by = 'eid') |>
+    group_by(fam_id) |>
+    arrange(fam_id, Birth_Year) |>
+    filter(eid == first(eid)) |>
+    ungroup(),
+  ukb_demo |> filter(
+    ! eid %in% ukb_families$eid)) |>
+  arrange(eid)
+```
+
+```{r}
+ukb_bc_filt_unrel <- ukb_covars_bc |> filter(
+  eid %in% ukb_filtered$eid,
+  eid %in% ukb_demo_unrel$eid)
+```
+
+#### Unmedicated
+
+```{r}
+ukb_meds <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_meds.csv'),
+  col_types = cols())
+```
+
+```{r}
+ukb_meds_o <- ukb_meds |> select(eid, med_other) |>
+  filter(med_other == 1)
+```
+
+```{r}
+ukb_meds_code <- ukb_meds |> select(-med_other) |>
+  pivot_longer(-eid, values_to = 'medcode') |>
+  select(-name) |>
+  filter(!is.na(medcode)) |>
+  mutate(medcode = as.character(medcode))
+```
+
+```{r}
+phesant_hits_cn <- read_csv(
+  file.path(root_fd, 'data', 'phesant', 'comparisons', 'phesant_nlr_cn.csv'),
+  col_types = cols()) |>
+  arrange(pvalue_cn) |>
+  select(description, varName, pvalue_cn)
+```
+
+```{r}
+phesant_meds <- phesant_hits_cn |>
+  filter(pvalue_cn < 1e-2, grepl("^20003#", varName)) |>
+    mutate(medcode = gsub("20003#", '', varName))
+```
+
+```{r}
+ukb_medicated <- unique(c(
+  ukb_meds_code |> 
+    inner_join(phesant_meds, by = 'medcode') |>
+    pull(eid),
+  ukb_meds_o |> pull(eid)))
+```
+
+```{r}
+ukb_medicated_all <- unique(c(
+  ukb_meds_code |> pull(eid),
+  ukb_meds_o |> pull(eid)))
+```
+
+```{r}
+ukb_bc_filt_unmed <- ukb_covars_bc |> filter(
+  eid %in% ukb_filtered$eid,
+  ! eid %in% ukb_medicated)
+```
+
+
+#### Healthy
+
+```{r}
+ukb_healthy <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'healthy_covars_wb.csv'),
+  col_types = cols())
+```
+
+```{r}
+ukb_bc_healthy <- ukb_covars_bc |> filter(
+  eid %in% ukb_healthy$eid)
+```
+
+#### Healthy Unmedicated
+
+```{r}
+ukb_bc_healthy_unmed <- ukb_covars_bc |> filter(
+  eid %in% ukb_healthy$eid,
+  ! eid %in% ukb_medicated)
+```
+
+#### Subpopulation titles
+
+```{r}
+subpopulations <- c(
+  'F' = paste0(
+    '(i) Filtered\n \n',
+    '[N = ', format(nrow(ukb_bc_filt), big.mark = ","), ']'),
+  'FU'=paste0(
+    '(ii) Filtered\nUnrelated\n',
+    '[N = ', format(nrow(ukb_bc_filt_unrel), big.mark = ","), ']'),
+  'FM'=paste0(
+    '(iii) Filtered\nUnmedicated\n',
+    '[N = ', format(nrow(ukb_bc_filt_unmed), big.mark = ","), ']'),
+  'H'=paste0(
+    '(iv) Healthy\n \n',
+    '[N = ', format(nrow(ukb_bc_healthy), big.mark = ","), ']'),
+  'HM'=paste0(
+    '(v) Healthy\nUnmedicated\n',
+    '[N = ', format(nrow(ukb_bc_healthy_unmed), big.mark = ","), ']'))
+```
+
+### Associations
+
+```{r}
+fit_bc <- function(df, subp = 'F' ) {
+  broom::tidy(lm(CN ~ ., df |>
+                   mutate(across(where(is.numeric), scale)) |>
+                   select(-eid)),
+              conf.int = TRUE) |>
+    mutate(pop = subpopulations[subp],
+           lpval = -log10(p.value),
+           scoeff = sign(estimate)) |>
+    filter(grepl('#', term)) |>
+    mutate(term = gsub('`', '', term))
+}
+```
+
+#### No Biochemistry
+
+```{r}
+ukb_subp_bc <- bind_rows(
+  fit_bc(ukb_covars_bc |>
+           filter(eid %in% ukb_bc_filt$eid),
+         subp = 'F'),
+  fit_bc(ukb_covars_bc |>
+           filter(eid %in% ukb_bc_filt_unmed$eid),
+         subp = 'FM'),
+  fit_bc(ukb_covars_bc |>
+           filter(eid %in% ukb_bc_filt_unrel$eid),
+         subp = 'FU'),
+  fit_bc(ukb_covars_bc |>
+           filter(eid %in% ukb_bc_healthy$eid),
+         subp = 'H'),
+  fit_bc(ukb_covars_bc |>
+           filter(eid %in% ukb_bc_healthy_unmed$eid),
+         subp = 'HM')) |>
+  mutate(type = 'Counts')
+```
+
+```{r}
+fit_subp_ratio <- function(df, subp = 'F') {
+  lapply(X = c('NLR', 'PLR', 'LMR', 'SII'),
+         FUN = function(x) fit_ratio_scale(df, x) |>
+           mutate(pop = subpopulations[subp]))
+}
+```
+
+```{r}
+ukb_subp_br <- bind_rows(
+  fit_subp_ratio(ukb_covars_br |>
+                   filter(eid %in% ukb_bc_filt$eid), 'F'), 
+  fit_subp_ratio(ukb_covars_br |>
+                   filter(eid %in% ukb_bc_filt_unrel$eid), 'FU'),
+  fit_subp_ratio(ukb_covars_br |>
+                   filter(eid %in% ukb_bc_filt_unmed$eid), 'FM'),
+  fit_subp_ratio(ukb_covars_br |>
+                   filter(eid %in% ukb_bc_healthy$eid), 'H'),
+  fit_subp_ratio(ukb_covars_br |>
+                   filter(eid %in% ukb_bc_healthy_unmed$eid), 'HM'))  |> 
+  mutate(type = 'Ratios')
+```
+
+#### Biochemistry
+
+```{r}
+ukb_biochem <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_biochem.csv'),
+  col_types = cols())
+```
+
+```{r}
+ukb_covars_biochem_bc <- ukb_gwas_covars |>
+  inner_join(ukb_blood_counts, by = 'eid') |>
+  inner_join(ukb_biochem, by = 'eid') |>
+  select(-Height, -starts_with('Blood'))
+```
+
+```{r}
+ukb_subp_biochem_bc <- bind_rows(
+  fit_bc(ukb_covars_biochem_bc |>
+           filter(eid %in% ukb_bc_filt$eid),
+         subp = 'F'),
+  fit_bc(ukb_covars_biochem_bc |>
+           filter(eid %in% ukb_bc_filt_unmed$eid),
+         subp = 'FM'),
+  fit_bc(ukb_covars_biochem_bc |>
+           filter(eid %in% ukb_bc_filt_unrel$eid),
+         subp = 'FU'),
+  fit_bc(ukb_covars_biochem_bc |>
+           filter(eid %in% ukb_bc_healthy$eid),
+         subp = 'H'),
+  fit_bc(ukb_covars_biochem_bc |>
+           filter(eid %in% ukb_bc_healthy_unmed$eid),
+         subp = 'HM')) |>
+  mutate(type = 'Counts')
+```
+
+
+```{r}
+fit_ratio_biochem <- function(df, the_ratio = 'NLR') {
+  ratios_remove <- setdiff(
+    c('NLR', 'PLR', 'LMR', 'SII'), the_ratio)
+  broom::tidy(lm.beta::lm.beta(lm(CN ~ . , df |>
+                mutate(across(where(is.numeric), scale)) |>
+               select(-eid, -any_of(ratios_remove)))),
+              conf.int = TRUE) |>
+  mutate(lpval = -log10(p.value),
+         scoeff = sign(std_estimate)) |>
+  filter(term == the_ratio)
+}
+```
+
+```{r}
+fit_ratio_biochem_2 <- function(df, the_ratio = 'NLR') {
+  ratios_remove <- setdiff(
+    c('NLR', 'PLR', 'LMR', 'SII'), the_ratio)
+  broom::tidy(lm.beta::lm.beta(lm(NLR ~ . , df |>
+                mutate(across(where(is.numeric), scale)) |>
+               select(-eid, -any_of(ratios_remove)))),
+              conf.int = TRUE) |>
+  mutate(lpval = -log10(p.value),
+         scoeff = sign(std_estimate))
+}
+```
+
+```{r}
+fit_ratios_biochem <- function(df, subp = 'F') {
+  lapply(X = c('NLR', 'PLR', 'LMR', 'SII'),
+         FUN = function(x) fit_ratio_biochem(df, x) |>
+           mutate(pop = subpopulations[subp]))
+}
+```
+
+```{r}
+fit_ratios_biochem_2 <- function(df, subp = 'F') {
+  lapply(X = c('NLR', 'PLR', 'LMR', 'SII'),
+         FUN = function(x) fit_ratio_biochem_2(df, x) |>
+           mutate(pop = subpopulations[subp]))
+}
+```
+
+```{r}
+ukb_covars_biochem_br <- ukb_gwas_covars |>
+  inner_join(ukb_br, by = 'eid') |>
+  inner_join(ukb_biochem, by = 'eid') |>
+  select(-Height, -starts_with('Blood'))
+```
+
+```{r}
+ukb_subp_biochem_br <- bind_rows(
+  fit_ratios_biochem(ukb_covars_biochem_br |>
+                   filter(eid %in% ukb_bc_filt$eid), 'F'), 
+  fit_ratios_biochem(ukb_covars_biochem_br |>
+                   filter(eid %in% ukb_bc_filt_unrel$eid), 'FU'),
+  fit_ratios_biochem(ukb_covars_biochem_br |>
+                   filter(eid %in% ukb_bc_filt_unmed$eid), 'FM'),
+  fit_ratios_biochem(ukb_covars_biochem_br |>
+                   filter(eid %in% ukb_bc_healthy$eid), 'H'),
+  fit_ratios_biochem(ukb_covars_biochem_br |>
+                   filter(eid %in% ukb_bc_healthy_unmed$eid), 'HM'))  |> 
+  mutate(type = 'Ratios')
+```
+
+```{r}
+subp_biochem_sig_p <- bind_rows(
+  bind_rows(
+    ukb_subp_bc,
+    ukb_subp_br) |> 
+    mutate(Control = 'No'),
+  bind_rows(
+    ukb_subp_biochem_bc,
+    ukb_subp_biochem_br) |> 
+    mutate(Control = 'Yes')) |>
+  mutate(Control = forcats::fct_rev(Control),
+         base_pop = if_else(grepl('Filt', pop),
+                            'F', 'H')) |>
+  ggplot(aes(y = term, x = lpval, fill = base_pop, alpha = Control)) +
+  geom_col(colour = 'grey20', linewidth = 0.75,
+           position = position_dodge2()) +
+  geom_vline(xintercept = -log10(0.05),
+             colour = 'grey60', alpha = 0.8,
+             linewidth = 0.75, linetype = 'dashed') +
+  facet_grid(rows = vars(type), 
+             cols = vars(pop),
+             scales = 'free', space = 'free_y') +
+  labs(y = '', x = bquote(bold(-log[10](p-value)))) +
+  scale_alpha_manual('Control for PHESANT Blood Biochemistry Hits', 
+                    values = c('No' = 0.9,
+                               'Yes' = 0.3)) +
+  scale_fill_manual(values = c('F' = 'burlywood3',
+                               'H' = 'slategray3')) +
+  theme_pub() +
+  theme(legend.position = 'bottom',
+        legend.title = element_text(size = 14, face = 'bold'),
+        legend.text = element_text(size = 12),
+        legend.margin = margin(t = -10),
+        axis.text.y = element_text(size = 14),
+        strip.text.y = element_blank(),
+        panel.spacing = unit(0.1, 'lines')) +
+  guides(fill = 'none')
+```
+
+
+```{r}
+ggsave(
+  plot = subp_biochem_sig_p,
+  filename = file.path('..', 'figures', '3.B.- Subpopulations p-values.png'), 
+  height = 8, width = 10)
+```
+
+## C.- Subpopulations Betas
+
+```{r}
+subp_betas_p <- bind_rows(
+  ukb_subp_bc,
+  ukb_subp_br) |> 
+  filter(grepl('\\(i\\)|\\(iv\\)', pop)) |>
+  mutate(subp = factor(
+    if_else(grepl('Filt', pop), 'Filtered', 'Healthy'))) |>
+  ggplot(aes(y = term, x = estimate, xmin = conf.low, xmax = conf.high,
+             shape = subp)) +
+  geom_vline(xintercept = 0, linewidth = 0.5, colour = 'grey80') +
+  geom_pointrange(aes(fill = subp),
+                  colour = 'grey30', size = 1,
+                linewidth = 0.75, alpha = 0.8,
+                position = position_dodge2(width = 0.75)) +
+  scale_fill_manual('Subpopulation', 
+                    values = c('Filtered' = 'burlywood3',
+                               'Healthy' = 'slategray3')) +
+  scale_shape_manual('Subpopulation', 
+                    values = c('Filtered' = 21,
+                               'Healthy' = 23)) +
+  scale_x_continuous(limits = c(-0.06, 0.06),
+                     breaks = c(-0.05, 0, 0.05)) +
+  facet_grid(rows = vars(type), scales = 'free_y', space = 'free') +
+  labs(y = '', x = "Standardised Beta, 95% CI") +
+  theme_pub() +
+  theme(legend.position = 'bottom',
+        legend.title = element_text(size = 14, face = 'bold'),
+        legend.text = element_text(size = 13),
+        legend.margin = margin(t = -10),
+        strip.text.y = element_blank(),
+        axis.text.y = element_text(size = 14),
+        panel.spacing = unit(0.1, 'lines'),
+        plot.margin = margin(r = 10))
+```
+
+```{r}
+ggsave(
+  plot = subp_betas_p,
+  filename = file.path('..', 'figures', '3.C.- Subpopulations betas.png'), 
+  height = 7, width = 5.2)
+```
+
+## D.- Other Ethnicities
+
+```{r}
+ukb_47s <- read_csv(
+  file.path(root_fd, 'data', 'cn', 'ukb_47s.csv'),
+  col_types = cols())
+```
+
+```{r}
+ukb_47s_o <- ukb_demo %>%
+  inner_join(ukb_47s, by = 'eid') %>%
+  filter(Eth_Back != 1001)
+```
+
+```{r}
+ukb_geno_array <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_array.csv'),
+  col_types = cols()
+)
+```
+
+```{r}
+ukb_pcs <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_pc.csv'),
+  col_types = cols()
+)
+```
+
+```{r}
+ukb_sr <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_sr.csv'),
+  col_types = cols()
+)
+```
+
+```{r}
+ukb_atl <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_adj_tl.csv'),
+  col_types = cols()
+)
+```
+
+```{r}
+ukb_ac <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_ac.csv'),
+  col_types = cols()
+)
+```
+
+```{r}
+ukb_br_all <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_blood_counts.csv'),
+  col_types = cols()) |>
+  filter(`Monocyte #` > 0, !is.na(`Platelet #`)) |>
+  mutate(NLR = `Neutrophil #` / `Lymphocyte #`,
+         PLR = `Platelet #` / `Lymphocyte #`,
+         LMR = `Lymphocyte #` / `Monocyte #`,
+         SII = (`Neutrophil #` *`Platelet #`) / `Lymphocyte #`)
+```
+
+```{r}
+ukb_covars_o <- ukb_47s_o %>%
+    filter(eid %in% c(ukb_geno_array %>% 
+                        filter(Array == 1) %>% pull(eid))) %>%
+    inner_join(ukb_pcs, by = 'eid') %>%
+    inner_join(ukb_sr, by = 'eid') %>%
+    inner_join(ukb_atl, by = 'eid') %>%
+    inner_join(ukb_ac %>% select(-coding), by = 'eid') %>%
+    inner_join(ukb_br_all, by = 'eid') %>%
+    mutate(`Age Sq` = Age * Age) %>%
+    select(eid, Sex, 
+           starts_with('Age'), 
+           Eth_Back,
+           contains('Centre'),
+           paste0('PC', 1:40),
+           starts_with('Adj'),
+           ends_with('#'),
+           NLR, PLR, SII, LMR,
+           CN)
+
+ukb_covars_o[is.na(ukb_covars_o) | ukb_covars_o == "Inf"] <- NA
+```
+
+```{r}
+fit_counts_o <- function(df, num_pc = 10) {
+  broom::tidy(
+    lm(CN ~ . , df |>
+         mutate(across(where(is.numeric), scale)) |>
+         select(Sex, starts_with('Age'), Eth_Back, contains('Centre'), 
+                any_of(paste0('PC', 1:num_pc)), starts_with('Adj'),
+                ends_with('#'),
+                CN)),
+    conf.int = TRUE) |> 
+    mutate(lpval = -log10(p.value),
+           scoeff = sign(estimate),
+           term = gsub('`', '', term))
+}
+```
+
+```{r}
+fit_ratios_o <- function(df, the_ratio = 'NLR', num_pc = 10) {
+  broom::tidy(
+    lm(CN ~ . , df |>
+         mutate(across(where(is.numeric), scale)) |>
+         select(Sex, starts_with('Age'), Eth_Back, contains('Centre'), 
+                any_of(paste0('PC', 1:num_pc)), starts_with('Adj'),
+                all_of(the_ratio),
+                CN)),
+    conf.int = TRUE) |> 
+    mutate(lpval = -log10(p.value),
+           scoeff = sign(estimate)) |>
+    filter(term == the_ratio)
+}
+```
+
+
+```{r}
+other_eth_sig <- bind_rows(
+  fit_counts_o(ukb_covars_o) |> 
+    filter(grepl('#', term)) |>
+    mutate(type = 'Counts'),
+  bind_rows(
+  lapply(X = c('NLR', 'PLR', 'SII', 'LMR'),
+       FUN = function(x) fit_ratios_o(ukb_covars_o, x))) |>
+    mutate(type = 'Ratios') )
+```
+
+```{r}
+other_eth_betas_p <- other_eth_sig |> 
+  ggplot(aes(y = term, x = estimate, xmin = conf.low,
+             xmax = conf.high, fill = as.factor(scoeff))) +
+  geom_vline(xintercept = 0, linewidth = 0.5, colour = 'grey80') +
+  geom_pointrange(colour = 'grey30',
+                linewidth = 0.75, alpha = 0.8, shape = 23) +
+  scale_fill_manual('', 
+                    values = c('-1' = 'lightcoral',
+                               '1' = 'royalblue4')) +
+  facet_grid(rows = vars(type), scales = 'free_y', space = 'free') +
+  scale_x_continuous(limits = c(-0.06, 0.06),
+                     breaks = c(-0.05, 0, 0.05)) +
+  labs(y = '', x = "Standardised Beta, 95% CI") +
+  theme_pub() +
+  theme(legend.position = 'none',
+        strip.text.y = element_blank(),
+        panel.spacing = unit(0.1, 'lines'),
+        axis.title = element_text(size = 13)) 
+```
+
+```{r}
+other_eth_sig_p <- other_eth_sig |> 
+  ggplot(aes(y = term, x = lpval, fill = as.factor(scoeff))) +
+  geom_col(alpha = 0.8, colour = 'grey20', linewidth = 0.75) +
+  geom_vline(xintercept = -log10(0.05), colour = 'grey60', alpha = 0.8,
+             linewidth = 0.75, linetype = 'dashed') +
+  facet_grid(rows = vars(type), 
+             scales = 'free_y', space = 'free') +
+  labs(y = '', x = bquote(bold(-log[10](p-value)))) +
+  scale_fill_manual('', 
+                    values = c('-1' = 'lightcoral',
+                               '1' = 'royalblue4')) +
+  theme_pub() +
+  theme(legend.position = 'none',
+        strip.text.y = element_blank(),
+        panel.spacing = unit(0.1, 'lines'),
+        axis.title = element_text(size = 13)) 
+```
+
+```{r}
+ggsave(
+  plot = (other_eth_betas_p | (
+    other_eth_sig_p +
+      theme(axis.text.y = element_blank(),
+            axis.title.y = element_blank(),
+            axis.ticks.y = element_blank()))
+    ) + plot_annotation(
+      title = 'All Ethnicities other than White British [N = 22,609]',
+      theme = theme(plot.title = element_text(hjust = 0.55))),
+  filename = file.path('..', 'figures', '3.D.- Other Ethnicities.png'), 
+  height = 5, width = 6.5)
+```
+
+```{r}
+ukb_countries <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_countries.csv'), 
+            col_types = cols())
+ukb_gwas_country <- ukb_br_all |>
+  inner_join(ukb_gwas_covars, by = 'eid') |>
+  inner_join(ukb_countries, by = 'eid')
+
+wb_nation_sig <- bind_rows(
+  bind_rows(
+    lapply(X = c('NLR', 'PLR', 'SII', 'LMR'),
+       FUN = function(x) fit_ratio_scale(ukb_gwas_country |>
+                                     filter(country == 'England'), x))) |>
+    mutate(eth = 'White British in England'),
+  bind_rows(
+    lapply(X = c('NLR', 'PLR', 'SII', 'LMR'),
+       FUN = function(x) fit_ratio_scale(ukb_gwas_country |>
+                                     filter(country == 'Scotland'), x))) |>
+    mutate(eth = 'White British in Scotland'),
+  bind_rows(
+    lapply(X = c('NLR', 'PLR', 'SII', 'LMR'),
+       FUN = function(x) fit_ratio_scale(ukb_gwas_country |>
+                                     filter(country == 'Wales'), x)))|>
+    mutate(eth = 'White British in Wales'))
+```
+
+```{r}
+specific_eth_sig <- bind_rows(
+  bind_rows(
+    lapply(X = c('NLR', 'PLR', 'SII', 'LMR'),
+       FUN = function(x) fit_ratio_scale(ukb_covars_o |> 
+                                      filter(Eth_Back == 5), x))) |>
+    mutate(eth = 'Chinese'),
+  bind_rows(
+    lapply(X = c('NLR', 'PLR', 'SII', 'LMR'),
+       FUN = function(x) fit_ratio_scale(ukb_covars_o |> 
+                                      filter(Eth_Back == 1002), x))) |>
+    mutate(eth = 'White Irish'),
+  bind_rows(
+    lapply(X = c('NLR', 'PLR', 'SII', 'LMR'),
+       FUN = function(x) fit_ratio_scale(ukb_covars_o |> 
+                                      filter(Eth_Back == 1003), x))) |>
+    mutate(eth = 'White Other'),
+  bind_rows(
+    lapply(X = c('NLR', 'PLR', 'SII', 'LMR'),
+       FUN = function(x) fit_ratio_scale(ukb_covars_o |> 
+                                      filter(Eth_Back > 3000,
+                                             Eth_Back < 4000), x))) |>
+    mutate(eth = 'Asian or Asian British'),
+  bind_rows(
+    lapply(X = c('NLR', 'PLR', 'SII', 'LMR'),
+       FUN = function(x) fit_ratio_scale(ukb_covars_o |> 
+                                      filter(Eth_Back > 4000,
+                                             Eth_Back < 5000), x))) |>
+    mutate(eth = 'Black or Black British'),
+  bind_rows(
+    lapply(X = c('NLR', 'PLR', 'SII', 'LMR'),
+       FUN = function(x) fit_ratio_scale(ukb_covars_o |> 
+                                      filter(Eth_Back > 2000,
+                                             Eth_Back < 3000), x))) |>
+    mutate(eth = 'Mixed')) |> 
+  mutate(term = forcats::fct_rev(term))
+  
+```
+
+```{r}
+all_eth_beta_p <- bind_rows(
+  wb_nation_sig,
+  specific_eth_sig) |>
+  filter(term %in% c('SII', 'NLR')) |>
+  mutate(eth = forcats::fct_rev(
+    fct_relevel(eth, c(
+      'White British in England',
+      'White British in Scotland',
+      'White British in Wales',
+      'White Irish',
+      'White Other',
+      'Black or Black British',
+      'Asian or Asian British',
+      'Chinese',
+      'Mixed')))) |>
+  ggplot(aes(y = eth, x = std_estimate, xmin = conf.low, xmax = conf.high )) +
+  geom_vline(xintercept = 0, linewidth = 0.5, colour = 'grey80') +
+  geom_pointrange(fill = 'royalblue4', colour = 'grey30',
+                linewidth = 0.75, alpha = 0.8,
+                shape = 23) +
+  facet_grid(cols = vars(term)) +
+  labs(y = '', x = "Standardised Beta, 95% CI") +
+  scale_x_continuous(limits = c(-0.05, 0.25),
+                     breaks = c(0, 0.1, 0.2)) +
+  theme_pub() +
+  theme(legend.position = 'none',
+        strip.text = element_text(size = 14),
+        panel.spacing = unit(0.1, 'lines'),
+        axis.title = element_text(size = 13))
+```
+
+```{r}
+ggsave(
+  plot = all_eth_beta_p,
+  filename = file.path('..', 'figures', '3.E.- Specific Ethnicities.png'), 
+  height = 5, width = 6)
+```
+
+## S14.- Number of Principal Components
+
+```{r}
+other_eth_sig_40_pc <- bind_rows(
+  fit_counts_o(ukb_covars_o, num_pc = 40) |> 
+    filter(grepl('#', term)) |>
+    mutate(type = 'Counts'),
+  bind_rows(
+  lapply(X = c('NLR', 'PLR', 'SII', 'LMR'),
+       FUN = function(x) fit_ratios_o(ukb_covars_o, x, num_pc = 40))) |>
+    mutate(type = 'Ratios') )
+```
+
+```{r}
+other_eth_betas_40_pc_p <- bind_rows(
+  other_eth_sig_40_pc |> mutate(num_pc = '40 PC'),
+  other_eth_sig |> mutate(num_pc = '10 PC')) |> 
+  ggplot(aes(y = term, x = estimate, xmin = conf.low,
+             xmax = conf.high, fill = num_pc, group = num_pc)) +
+  geom_vline(xintercept = 0, linewidth = 0.5, colour = 'grey80') +
+  geom_pointrange(colour = 'grey30',
+                linewidth = 0.75, alpha = 0.8, shape = 23,
+                position = position_dodge(width = 0.9)) +
+  scale_fill_manual('Number of\nPrincipal Components', 
+                    values = c('10 PC' = 'grey50',
+                               '40 PC' = 'grey95')) +
+  facet_grid(rows = vars(type), scales = 'free_y', space = 'free') +
+  scale_x_continuous(limits = c(-0.06, 0.06),
+                     breaks = c(-0.05, 0, 0.05)) +
+  labs(y = '', x = "Standardised Beta, 95% CI") +
+  theme_pub() +
+  theme(legend.position = 'none',
+        strip.text.y = element_blank(),
+        panel.spacing = unit(0.1, 'lines'),
+        axis.title = element_text(size = 13)) 
+```
+
+```{r}
+other_eth_sig_40_pc_p <- bind_rows(
+  other_eth_sig_40_pc |> mutate(num_pc = '40 PC'),
+  other_eth_sig |> mutate(num_pc = '10 PC')) |>  
+  ggplot(aes(y = term, x = lpval, fill = num_pc, group = num_pc)) +
+  geom_col(alpha = 0.8, colour = 'grey20', linewidth = 0.75,
+            position = position_dodge(width = 0.9)) +
+  geom_vline(xintercept = -log10(0.05), colour = 'grey60', alpha = 0.8,
+             linewidth = 0.75, linetype = 'dashed') +
+  facet_grid(rows = vars(type), 
+             scales = 'free_y', space = 'free') +
+  labs(y = '', x = bquote(bold(-log[10](p-value)))) +
+  scale_fill_manual('Number of\nPrincipal\nComponents', 
+                    values = c('10 PC' = 'grey50',
+                               '40 PC' = 'grey95')) +
+  theme_pub() +
+  theme(
+        strip.text.y = element_blank(),
+        panel.spacing = unit(0.1, 'lines'),
+        axis.title = element_text(size = 13)) 
+```
+
+```{r}
+ggsave(
+  plot = (other_eth_betas_40_pc_p | (
+    other_eth_sig_40_pc_p +
+      theme(axis.text.y = element_blank(),
+            axis.title.y = element_blank(),
+            axis.ticks.y = element_blank()))
+    ) + plot_annotation(
+      title = 'All Ethnicities other than White British [N = 22,609]',
+      theme = theme(plot.title = element_text(hjust = 0.55),
+                    plot.subtitle = element_text(hjust = 0.55))),
+  filename = file.path('..', 'figures_supp', 'S14.- Other Ethnicities, 40 PCs.png'), 
+  height = 5, width = 7.5)
+```
