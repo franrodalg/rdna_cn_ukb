@@ -1,0 +1,1338 @@
+---
+title: "Figure 2.- Association between rDNA CN and hematological profiles"
+---
+
+## Setup
+
+```{r setup}
+source('0.0.- Setup.R')
+```
+
+```{r}
+ukb_47s_wb <- read_csv(
+  file.path(root_fd, 'data', 'cn', 'ukb_47s_wb.csv'),
+  col_types = cols())
+```
+
+```{r}
+ukb_demo <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_demo.csv'),
+  col_types = cols())
+```
+
+```{r read_sr}
+ukb_sr <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_sr.csv'),
+  col_types = cols())
+```
+
+```{r}
+ukb_gwas_covars <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_gwas_covars.csv'),
+  col_types = cols())
+```
+
+
+## A.- PHESANT CN
+
+```{r}
+phesant_cn_with_blood <- clean_phesant(read_tsv(
+  file.path(root_fd, 'data', 'phesant',
+            'combined_with_bc', 'cn', 'results-combined.txt'),
+  col_types = cols())) |>
+  mutate(cat = stringr::str_squish(sub(".*>", "", Path)),
+         category = if_else(
+           grepl('Blood assay|Medications', Cat3_Title), cat, Cat1_Title)) |>
+  select(varName, category, description,
+         N = total_n, cases, beta, ci_low = lower, ci_high = upper,
+         pvalue) |>
+  arrange(pvalue) |>
+  mutate(description = gsub('ophill', 'ophil', description))
+```
+
+```{r}
+phesant_cn_with_blood_fdr <- phesant_cn_with_blood |>
+  mutate(fdr = p.adjust(pvalue, method = 'fdr')) |>
+  filter(fdr < 0.01) |>
+  arrange(fdr) |>
+  mutate(description = case_when(
+    grepl('F06', description) ~ 'F06: Other mental disorders [...]',
+    grepl('D73', description) ~ 'D73: Diseases of spleen',
+    TRUE ~ description),
+    description = gsub('Type of cancer: ICD10: O01.9', 'O01.9:', description),
+    description = gsub('Treatment/medication code: s', 'S', description),
+    description = gsub('White blood cell \\(leukocyte\\)', 'Leukocyte', description),
+    description = gsub('Red blood cell \\(erythrocyte\\)', 'Erythrocyte', description),
+    description = factor(description) |>
+      forcats::fct_inorder() |>
+      forcats::fct_rev()) |>
+  mutate(category = gsub('d o', 'd\no', category),
+         supercat = if_else(!grepl('Blood', category), 'Other', category))
+```  
+```{r}
+phesant_cn_with_blood_beta_p <- phesant_cn_with_blood_fdr |>
+  mutate(supercat = fct_rev(supercat)) |>
+  ggplot(aes(x = beta, xmin = ci_low, xmax = ci_high, y = description)) +
+  geom_vline(xintercept = 0, linewidth = 0.5, colour = 'grey80') +
+  geom_crossbar(fill = 'grey90', colour = 'grey60',
+                linewidth = 0.5, fatten = 1, alpha = 0.5) +
+  geom_point(aes(shape = category, fill = category),
+             alpha = 0.8, size = 2) +
+  facet_grid(rows = vars(supercat), scales = 'free_y', space = 'free') +
+  labs(y = '', x = 'Standardised Beta, 95% CI') +
+  scale_x_continuous(limits = c(-0.042, 0.042),
+                     breaks = c(-0.04, -0.02, 0, 0.02, 0.04)) +
+  scale_fill_manual('Phenotype category',
+                    values = c('steelblue3', 'firebrick3', 
+                               'gold3', 'olivedrab3')) +
+  scale_shape_manual('Phenotype category',
+                     values = c(24, 23, 22, 21)) +
+  theme_pub() +
+  theme(legend.position = 'none',
+        legend.title = element_text(face = 'bold',
+                                    size = 12),
+        legend.text = element_text(size = 11),
+        legend.spacing.y = unit(0.3, 'lines'),
+        legend.box.background = element_rect(linewidth = 0.4),
+        strip.text = element_blank()) 
+```
+
+
+```{r}
+phesant_cn_with_blood_fdr_p <- phesant_cn_with_blood_fdr |>
+  mutate(supercat = fct_rev(gsub(' b', '\nb', supercat))) |>
+  mutate(lfdr = -log10(fdr)) |>
+  ggplot(aes(x = lfdr, y = description)) +
+  geom_col(fill = 'grey90', colour = 'grey20', linewidth = 0.75,
+           width = 0.8) +
+  geom_vline(xintercept = -log10(0.01), colour = 'grey60', alpha = 0.8,
+             linewidth = 0.75, linetype = 'dashed') +
+  facet_grid(rows = vars(supercat), scales = 'free_y', space = 'free') +
+  scale_x_continuous(limits = c(0, 41)) +
+  labs(y = '', x = bquote(bold(-log[10](FDR)))) +
+  theme_pub() +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        strip.text.y = element_text(size = 10))
+```
+
+```{r}
+phesant_cn_with_blood_p <- (phesant_cn_with_blood_beta_p |
+  phesant_cn_with_blood_fdr_p) +
+  plot_layout(widths = c(0.65, 0.35))
+
+ggsave(
+  plot = phesant_cn_with_blood_p,
+  filename = file.path('..', 'figures', '2.A.- PHESANT CN.png'), 
+  height = 5.5, width = 8.5)
+```
+
+```{r}
+phesant_cn_with_blood_beta_other_p <- phesant_cn_with_blood_fdr |>
+  ggplot(aes(x = beta, xmin = ci_low, xmax = ci_high, y = description)) +
+  geom_vline(xintercept = 0, linewidth = 0.5, colour = 'grey80') +
+  geom_crossbar(fill = 'grey90', colour = 'grey60',
+                linewidth = 0.5, fatten = 1, alpha = 0.5) +
+  geom_point(aes(shape = category, fill = category),
+             alpha = 0.8, size = 2) +
+  facet_grid(rows = vars(supercat), scales = 'free_y', space = 'free') +
+  labs(y = '', x = 'Standardised Beta, 95% CI') +
+  scale_x_continuous(limits = c(-0.35, 0.35),
+                     breaks = c(-0.3, 0, 0.3)) +
+  scale_fill_manual('Phenotype category',
+                    values = c('steelblue3', 'firebrick3', 
+                               'gold3', 'olivedrab3')) +
+  scale_shape_manual('Phenotype category',
+                     values = c(24, 23, 22, 21)) +
+  theme_pub() +
+  theme(legend.position = 'none',
+        legend.title = element_text(face = 'bold',
+                                    size = 12),
+        legend.text = element_text(size = 11),
+        legend.spacing.y = unit(0.3, 'lines'),
+        legend.box.background = element_rect(linewidth = 0.4),
+        strip.text = element_blank()) 
+```
+
+
+```{r}
+phesant_cn_with_blood_fdr_other_p <- phesant_cn_with_blood_fdr |>
+  mutate(lfdr = -log10(fdr)) |>
+  mutate(supercat = gsub(' b', '\nb', supercat)) |>
+  ggplot(aes(x = lfdr, y = description)) +
+  geom_col(fill = 'grey90', colour = 'grey20', linewidth = 0.75,
+           width = 0.8) +
+  geom_vline(xintercept = -log10(0.01), colour = 'grey60', alpha = 0.8,
+             linewidth = 0.75, linetype = 'dashed') +
+  facet_grid(rows = vars(supercat), scales = 'free_y', space = 'free') +
+  scale_x_continuous(limits = c(0, 41)) +
+  labs(y = '', x = bquote(bold(-log[10](FDR)))) +
+  theme_pub() +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        strip.text.y = element_text(size = 10))
+```
+
+```{r}
+phesant_cn_with_blood_p <- (phesant_cn_with_blood_beta_other_p |
+  phesant_cn_with_blood_fdr_other_p) +
+  plot_layout(widths = c(0.65, 0.35))
+
+ggsave(
+  plot = phesant_cn_with_blood_p,
+  filename = file.path('..', 'figures', '2.A.- PHESANT CN, Other.png'), 
+  height = 5.5, width = 8.5)
+```
+
+## B.- Association with Blood Counts and Ratios
+
+### Counts
+
+```{r}
+ukb_blood_counts <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_blood_counts.csv'),
+  col_types = cols())
+```
+
+```{r}
+ukb_covars_bc <- ukb_gwas_covars |>
+  inner_join(ukb_blood_counts, by = 'eid') |>
+  select(-Height, -starts_with('Blood'))
+```
+
+```{r bc_sig_scale}
+ukb_bc_sig_scale <- broom::tidy(
+  lm(CN ~ . , ukb_covars_bc |>
+       mutate(across(where(is.numeric), scale)) |>
+       select(-eid)), 
+  conf.int = TRUE) |>
+  mutate(lpval = -log10(p.value),
+         scoeff = sign(estimate)) |>
+  filter(grepl('#', term)) |>
+  mutate(term = forcats::fct_rev(gsub('`', '', term)))
+```
+
+### Ratios
+
+```{r}
+group_labels <- c('Low', 'Mid-Low', 'Mid', 'Mid-High', 'High')
+```
+
+```{r}
+ukb_covars_br <- ukb_covars_bc |>
+  filter(`Monocyte #` > 0, !is.na(`Platelet #`)) |>
+  mutate(NLR = `Neutrophil #` / `Lymphocyte #`,
+         NLR_group = cut_number(NLR, n = 5, labels = group_labels),
+         PLR = `Platelet #` / `Lymphocyte #`,
+         PLR_group = cut_number(PLR, n = 5, labels = group_labels),
+         LMR = `Lymphocyte #` / `Monocyte #`,
+         LMR_group = cut_number(LMR, n = 5, labels = group_labels),
+         SII = (`Neutrophil #` *`Platelet #`) / `Lymphocyte #`,
+         SII_group = cut_number(SII, n = 5, labels = group_labels))
+```
+
+```{r}
+ukb_covars_br |> 
+  select(eid, NLR, PLR, LMR, SII) |>
+  write_csv(
+    file.path(root_fd, 'data', 'pheno', 'ukb_blood_ratios.csv'),
+    na = '')
+```
+
+```{r}
+ukb_br_sig_scale <- bind_rows(
+  lapply(X = c('NLR', 'PLR', 'LMR', 'SII'),
+         FUN = function(x) fit_ratio_scale(ukb_covars_br, x)))
+```
+
+```{r}
+ukb_blood_sig_scale <- bind_rows(
+  ukb_bc_sig_scale |> mutate(type = '(i) Blood Cell Subtype Counts'),
+  ukb_br_sig_scale |> mutate(type = '(ii) Systemic Inflammation Markers')) |> 
+  mutate(Coefficient = fct_rev(term))
+```
+
+```{r}
+blood_comp_beta_p <- ukb_blood_sig_scale |>
+  ggplot(aes(y = term, x = estimate,
+             xmin = conf.low, xmax = conf.high)) +
+  geom_vline(xintercept = 0, linewidth = 0.5, colour = 'grey80') +
+  geom_crossbar(fill = 'grey90', colour = 'grey60',
+                linewidth = 0.5, fatten = 1, alpha = 0.5) +
+  geom_point(aes(fill = as.factor(scoeff)),
+                  alpha = 0.8, colour = 'grey20',size = 2,
+             shape = 23) +
+  scale_fill_manual('', 
+                    values = c('-1' = 'lightcoral',
+                               '1' = 'royalblue4')) +
+  facet_grid(rows = vars(type), scales = 'free_y', space = 'free') +
+  scale_x_continuous(limits = c(-0.06, 0.06),
+                     breaks = c(-0.05, 0, 0.05)) +
+  labs(y = '', x = "Standardised Beta, 95% CI") +
+  theme_pub() +
+  theme(legend.position = 'none',
+        strip.text = element_blank(),
+        axis.text = element_text(size = 14),
+        axis.title = element_text(size = 16),
+        axis.text.y = element_text(size = 15))
+```
+
+```{r}
+ggsave(
+  plot = blood_comp_beta_p,
+  filename = file.path('..', 'figures', '2.B.- Association Betas.png'), 
+  height = 5.5, width = 4)
+```
+
+```{r}
+blood_comp_sig_p <- ukb_blood_sig_scale |> 
+  ggplot(aes(y = term, x = lpval, fill = as.factor(scoeff))) +
+  geom_col(alpha = 0.8, colour = 'grey20', linewidth = 0.75) +
+  geom_vline(xintercept = -log10(0.05), colour = 'grey60', alpha = 0.8,
+             linewidth = 0.75, linetype = 'dashed') +
+  facet_grid(rows = vars(type), scales = 'free_y', space = 'free') +
+  labs(y = '', x = bquote(bold(-log[10](p-value)))) +
+  scale_fill_manual('', 
+                    values = c('-1' = 'lightcoral',
+                               '1' = 'royalblue4')) +
+  theme_pub() +
+  theme(legend.position = 'none',
+        axis.text = element_text(size = 14),
+        axis.title = element_text(size = 16),
+        strip.text = element_blank())
+```
+
+```{r}
+ggsave(
+  plot = blood_comp_sig_p,
+  filename = file.path('..', 'figures', '2.B.- Association p-values.png'), 
+  height = 5.5, width = 4)
+```
+
+```{r}
+blood_comp_p <- (blood_comp_beta_p +
+   theme(
+     plot.margin = margin(r = -100)) |
+  (blood_comp_sig_p + theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    plot.margin = margin(l = -100)))) +
+  plot_layout(widths = c(0.55, 0.45))
+
+ggsave(
+  plot = blood_comp_p,
+  filename = file.path('..', 'figures', '2.B.- Association.png'), 
+  height = 6, width = 7)
+```
+
+### Joint Row
+
+```{r}
+ggsave(
+  plot = (phesant_cn_beta_p +
+            theme(legend.position = 'none') |
+   phesant_cn_fdr_p |
+   blood_comp_p) +
+  plot_layout(widths = c(0.65*0.40, 0.35*0.45, 0.55)),
+  filename = file.path('..', 'figures', '2.A and B.png'), 
+  height = 6, width = 17)
+```
+
+## Mendelian Randomisation
+
+```{r gwas_cn_msnps}
+bolt_lmm_cn_raw <- read_tsv(
+  file.path(root_fd, 'data', 'gwas_imp', 'cn_msnps.tsv'),
+  col_types = cols())
+```
+
+```{r gwas_cn_format}
+cn_ass_format <- bolt_lmm_cn_raw %>%
+  mutate(Phenotype = '18S Ratio') %>%
+  TwoSampleMR::format_data(
+    type = 'outcome',
+    snp_col = 'SNP',
+    beta_col = "BETA",
+    se_col = "SE",
+    effect_allele_col = "ALLELE1",
+    other_allele_col = "ALLELE0",
+    eaf_col = "A1FREQ",
+    pval_col = "P_BOLT_LMM_INF",
+    )
+```
+
+```{r}
+gwas_catalog <- read_tsv(
+  file.path(
+    root_fd, '..', 'data', 'gwas_catalog',
+    'gwas_catalog_v1.0.2-associations_e108_r2023-01-14.tsv'),
+  col_types = cols())
+```
+
+#### Neutrophil counts
+
+```{r}
+nc_associations <- gwas_catalog |> 
+  filter(grepl('neutrophil count', MAPPED_TRAIT),
+         `DISEASE/TRAIT` == 'Neutrophil count',
+         grepl('European|British', `INITIAL SAMPLE SIZE`),
+         !grepl('NR', `INITIAL SAMPLE SIZE`))
+  
+```
+
+```{r}
+suppressWarnings(
+  nc_ass_format <- nc_associations |>
+    mutate(se = TwoSampleMR::get_se(`OR or BETA`, `P-VALUE`)) |>
+    select(SNP=starts_with('STRONGEST'),
+           beta=`OR or BETA`,
+           pval=`P-VALUE`, 
+           se,
+           eaf = ends_with('FREQUENCY')) |>
+    separate(SNP, into = c('SNP', 'effect_allele'), 
+             sep = '-', extra = 'warn') |>
+    group_by(SNP) |>
+    filter(n_distinct(effect_allele) == 1) |>
+    group_by(SNP, effect_allele) |>
+    filter(pval == min(pval)) |>
+    filter(beta == max(beta)) |>
+    mutate(pheno = 'Neutrophil count') |>
+    TwoSampleMR::format_data(phenotype_col = 'pheno',
+                             type = 'exposure')) 
+```
+
+```{r}
+nc_ass_clump <- TwoSampleMR::clump_data(nc_ass_format)
+```
+
+
+```{r}
+nc_cn_harm_clump <- TwoSampleMR::harmonise_data(
+    exposure_dat = nc_ass_clump, 
+    outcome_dat = cn_ass_format
+)
+```
+
+```{r}
+(nc_cn_mc_clump <- TwoSampleMR::mr(nc_cn_harm_clump, method = 'mr_ivw'))
+```
+
+
+#### Neutrophil percentage
+
+```{r}
+np_associations <- gwas_catalog |> 
+  filter(grepl('neutrophil', MAPPED_TRAIT),
+         grepl('Neutrophil percentage of white cells', `DISEASE/TRAIT`),
+         grepl('European|British', `INITIAL SAMPLE SIZE`),
+         !grepl('NR', `INITIAL SAMPLE SIZE`))
+  
+```
+
+```{r}
+suppressWarnings(
+  np_ass_format <- np_associations |>
+    mutate(se = TwoSampleMR::get_se(`OR or BETA`, `P-VALUE`)) |>
+    select(SNP=starts_with('STRONGEST'),
+           beta=`OR or BETA`,
+           pval=`P-VALUE`, 
+           se,
+           eaf = ends_with('FREQUENCY')) |>
+    separate(SNP, into = c('SNP', 'effect_allele'), 
+             sep = '-', extra = 'warn') |>
+    group_by(SNP) |>
+    filter(n_distinct(effect_allele) == 1) |>
+    group_by(SNP, effect_allele) |>
+    filter(pval == min(pval)) |>
+    filter(beta == max(beta)) |>
+    mutate(pheno = 'Neutrophil percentage') |>
+    TwoSampleMR::format_data(phenotype_col = 'pheno',
+                             type = 'exposure')) 
+```
+
+```{r}
+np_ass_clump <- TwoSampleMR::clump_data(np_ass_format)
+```
+
+
+```{r}
+np_cn_harm_clump <- TwoSampleMR::harmonise_data(
+    exposure_dat = np_ass_clump, 
+    outcome_dat = cn_ass_format
+)
+```
+```{r}
+(np_cn_mc_clump <- TwoSampleMR::mr(np_cn_harm_clump))
+```
+
+```{r}
+(np_cn_mc_clump <- TwoSampleMR::mr(np_cn_harm_clump, method = c('mr_ivw')))
+```
+
+
+#### Platelet counts
+
+```{r}
+pc_associations <- gwas_catalog |> 
+  filter(grepl('platelet count', MAPPED_TRAIT),
+         `DISEASE/TRAIT` == 'Platelet count',
+         grepl('European|British', `INITIAL SAMPLE SIZE`),
+         !grepl('NR', `INITIAL SAMPLE SIZE`))
+  
+```
+
+```{r}
+suppressWarnings(
+  pc_ass_format <- pc_associations |>
+    mutate(se = TwoSampleMR::get_se(`OR or BETA`, `P-VALUE`)) |>
+    select(SNP=starts_with('STRONGEST'),
+           beta=`OR or BETA`,
+           pval=`P-VALUE`, 
+           se,
+           eaf = ends_with('FREQUENCY')) |>
+    separate(SNP, into = c('SNP', 'effect_allele'), 
+             sep = '-', extra = 'warn') |>
+    group_by(SNP) |>
+    filter(n_distinct(effect_allele) == 1) |>
+    group_by(SNP, effect_allele) |>
+    filter(pval == min(pval)) |>
+    filter(beta == max(beta)) |>
+    mutate(pheno = 'Platelet count') |>
+    TwoSampleMR::format_data(phenotype_col = 'pheno',
+                             type = 'exposure')) 
+```
+
+```{r}
+pc_ass_clump <- TwoSampleMR::clump_data(pc_ass_format)
+```
+
+
+```{r}
+pc_cn_harm_clump <- TwoSampleMR::harmonise_data(
+    exposure_dat = pc_ass_clump, 
+    outcome_dat = cn_ass_format
+)
+```
+
+```{r}
+(pc_cn_mc_clump <- TwoSampleMR::mr(pc_cn_harm_clump, method = c('mr_ivw')))
+```
+
+#### Lymphocyte counts
+
+```{r}
+lc_associations <- gwas_catalog |> 
+  filter(grepl('lymphocyte count', MAPPED_TRAIT),
+         `DISEASE/TRAIT` == 'Lymphocyte count',
+         grepl('European|British', `INITIAL SAMPLE SIZE`),
+         !grepl('NR', `INITIAL SAMPLE SIZE`))
+  
+```
+
+```{r}
+suppressWarnings(
+  lc_ass_format <- lc_associations |>
+    mutate(se = TwoSampleMR::get_se(`OR or BETA`, `P-VALUE`)) |>
+    select(SNP=starts_with('STRONGEST'),
+           beta=`OR or BETA`,
+           pval=`P-VALUE`, 
+           se,
+           eaf = ends_with('FREQUENCY')) |>
+    separate(SNP, into = c('SNP', 'effect_allele'), 
+             sep = '-', extra = 'warn') |>
+    group_by(SNP) |>
+    filter(n_distinct(effect_allele) == 1) |>
+    group_by(SNP, effect_allele) |>
+    filter(pval == min(pval)) |>
+    filter(beta == max(beta)) |>
+    mutate(pheno = 'Lymphocyte count') |>
+    TwoSampleMR::format_data(phenotype_col = 'pheno',
+                             type = 'exposure')) 
+```
+
+```{r}
+lc_ass_clump <- TwoSampleMR::clump_data(lc_ass_format)
+```
+
+
+```{r}
+lc_cn_harm_clump <- TwoSampleMR::harmonise_data(
+    exposure_dat = lc_ass_clump, 
+    outcome_dat = cn_ass_format
+)
+```
+
+```{r}
+(lc_cn_mc_clump <- TwoSampleMR::mr(lc_cn_harm_clump, 
+                                   method_list = c('mr_ivw')))
+```
+
+#### Lymphocyte percentage
+
+```{r}
+lp_associations <- gwas_catalog |> 
+  filter(grepl('lymphocyte', MAPPED_TRAIT),
+         `DISEASE/TRAIT` == 'Lymphocyte percentage of white cells',
+         grepl('European|British', `INITIAL SAMPLE SIZE`),
+         !grepl('NR', `INITIAL SAMPLE SIZE`))
+  
+```
+
+```{r}
+suppressWarnings(
+  lp_ass_format <- lp_associations |>
+    mutate(se = TwoSampleMR::get_se(`OR or BETA`, `P-VALUE`)) |>
+    select(SNP=starts_with('STRONGEST'),
+           beta=`OR or BETA`,
+           pval=`P-VALUE`, 
+           se,
+           eaf = ends_with('FREQUENCY')) |>
+    separate(SNP, into = c('SNP', 'effect_allele'), 
+             sep = '-', extra = 'warn') |>
+    group_by(SNP) |>
+    filter(n_distinct(effect_allele) == 1) |>
+    group_by(SNP, effect_allele) |>
+    filter(pval == min(pval)) |>
+    filter(beta == max(beta)) |>
+    mutate(pheno = 'Lymphocyte percentage') |>
+    TwoSampleMR::format_data(phenotype_col = 'pheno',
+                             type = 'exposure')) 
+```
+
+```{r}
+lp_ass_clump <- TwoSampleMR::clump_data(lp_ass_format)
+```
+
+```{r}
+lp_cn_harm_clump <- TwoSampleMR::harmonise_data(
+    exposure_dat = lp_ass_clump, 
+    outcome_dat = cn_ass_format
+)
+```
+
+```{r}
+(lp_cn_mc_clump <- TwoSampleMR::mr(lp_cn_harm_clump, method = c('mr_ivw')))
+```
+
+#### Leukocyte count
+
+```{r}
+lec_associations <- gwas_catalog |> 
+  filter(grepl('leukocyte', MAPPED_TRAIT),
+         `DISEASE/TRAIT` == 'White blood cell leukocyte count',
+         grepl('European|British', `INITIAL SAMPLE SIZE`),
+         !grepl('NR', `INITIAL SAMPLE SIZE`))
+  
+```
+
+```{r}
+suppressWarnings(
+  lp_ass_format <- lp_associations |>
+    mutate(se = TwoSampleMR::get_se(`OR or BETA`, `P-VALUE`)) |>
+    select(SNP=starts_with('STRONGEST'),
+           beta=`OR or BETA`,
+           pval=`P-VALUE`, 
+           se,
+           eaf = ends_with('FREQUENCY')) |>
+    separate(SNP, into = c('SNP', 'effect_allele'), 
+             sep = '-', extra = 'warn') |>
+    group_by(SNP) |>
+    filter(n_distinct(effect_allele) == 1) |>
+    group_by(SNP, effect_allele) |>
+    filter(pval == min(pval)) |>
+    filter(beta == max(beta)) |>
+    mutate(pheno = 'Lymphocyte percentage') |>
+    TwoSampleMR::format_data(phenotype_col = 'pheno',
+                             type = 'exposure')) 
+```
+
+```{r}
+lp_ass_clump <- TwoSampleMR::clump_data(lp_ass_format)
+```
+
+
+```{r}
+lp_cn_harm_clump <- TwoSampleMR::harmonise_data(
+    exposure_dat = lp_ass_clump, 
+    outcome_dat = cn_ass_format
+)
+```
+
+```{r}
+(lp_cn_mc_clump <- TwoSampleMR::mr(lp_cn_harm_clump, method = c('mr_ivw')))
+```
+
+#### NLR
+
+```{r}
+nlr_associations <- gwas_catalog |> 
+  filter(grepl('neutrophil', MAPPED_TRAIT),
+         `DISEASE/TRAIT` == 'Neutrophil-to-lymphocyte ratio',
+         grepl('European|British', `INITIAL SAMPLE SIZE`),
+         !grepl('NR', `INITIAL SAMPLE SIZE`))
+  
+```
+
+```{r}
+suppressWarnings(
+  nlr_ass_format <- nlr_associations |>
+    mutate(se = TwoSampleMR::get_se(`OR or BETA`, `P-VALUE`)) |>
+    select(SNP=starts_with('STRONGEST'),
+           beta=`OR or BETA`,
+           pval=`P-VALUE`, 
+           se,
+           eaf = ends_with('FREQUENCY')) |>
+    separate(SNP, into = c('SNP', 'effect_allele'), 
+             sep = '-', extra = 'warn') |>
+    group_by(SNP) |>
+    filter(n_distinct(effect_allele) == 1) |>
+    group_by(SNP, effect_allele) |>
+    filter(pval == min(pval)) |>
+    filter(beta == max(beta)) |>
+    mutate(pheno = 'NLR') |>
+    TwoSampleMR::format_data(phenotype_col = 'pheno',
+                             type = 'exposure')) 
+```
+
+THEY DON'T PROVIDE BETA!
+
+### Summary
+
+```{r}
+bind_rows(
+  lp_cn_mc_clump,
+  nc_cn_mc_clump,
+  np_cn_mc_clump,
+  pc_cn_mc_clump) |>
+  select(-starts_with('id')) |>
+  write_csv('../tables/MR Results.csv',
+            na = '')
+  
+```
+
+```{r}
+bind_rows(
+  lp_associations,
+  nc_associations,
+  np_associations,
+  pc_associations) |>
+  select(`DISEASE/TRAIT`, MAPPED_TRAIT, PUBMEDID, `FIRST AUTHOR`, JOURNAL, `STUDY ACCESSION`)  |>
+  distinct() |>
+  write_csv('../tables/Source of MR associations.csv',
+            na = '')
+  
+```
+
+
+## C.- Known influences on NLR
+
+```{r}
+ukb_nlr <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_nlr.csv'),
+  col_types = cols()) |> 
+  select(eid, NLR)
+```
+
+```{r}
+ukb_infl <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_infl.csv'),
+  col_types = cols())
+infl_vars <- ukb_infl |> select(-eid) |> colnames()
+```
+
+```{r}
+ukb_demo <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_demo.csv'),
+  col_types = cols())
+ukb_pcs <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_pc.csv'),
+  col_types = cols())
+ukb_atl <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_adj_tl.csv'),
+  col_types = cols())
+```
+
+```{r}
+ukb_nlr_pheno <- ukb_nlr |>
+  inner_join(ukb_demo, by = 'eid') |>
+  inner_join(ukb_pcs, by = 'eid') |>
+  inner_join(ukb_atl, by = 'eid') |>
+  mutate(`Age Sq` = Age * Age,
+         Eth_Back = as.factor(Eth_Back)) |>
+  select(eid, Sex, Eth_Back,
+         starts_with('Age'),
+         contains('Centre'),
+         paste0('PC', 1:10),
+         starts_with('Adj'),
+         NLR) 
+```
+
+```{r fit_infl_age}
+fit_infl_age <- function(pop = 'NLR - UKB') {
+  
+  if(pop == 'NLR - UKB') { 
+    df <- ukb_nlr_pheno
+  } else if (pop == 'NLR - WB') {
+    df <- (ukb_nlr_pheno |>
+      filter(Eth_Back == '1001') |>
+      select(-Eth_Back))
+  } else {
+    df <- (ukb_nlr_pheno |>
+             filter(eid %in% ukb_gwas_covars$eid) |>
+             select(-Eth_Back))
+  }
+  
+  broom::tidy(
+    lm(NLR ~ . , df |> 
+         mutate(across(where(is.numeric), scale)) |>
+         select(-eid)),
+    conf.int = TRUE) |> 
+    mutate(term = gsub('`', '', term),
+           lpval = -log10(p.value),
+           scoeff = sign(estimate),
+           Population = pop) |>
+    filter(grepl('Age', term)) |>
+    relocate(Population)
+}
+```
+
+```{r fit_infl_var}
+fit_infl_var <- function(pop = 'NLR - UKB', the_var = 'BMI') {
+  
+  aux <- ukb_nlr_pheno |>
+      inner_join(ukb_infl |> select(eid, all_of(the_var)),
+                 by = 'eid')
+  
+  if(pop == 'NLR - UKB') { 
+    df <- aux
+  } else if (pop == 'NLR - WB') {
+    df <- (aux |>
+      filter(Eth_Back == '1001') |>
+      select(-Eth_Back))
+  } else {
+    df <- (aux |>
+             filter(eid %in% ukb_gwas_covars$eid) |>
+             select(-Eth_Back))
+  }
+  
+  broom::tidy(
+    lm(NLR ~ . , df |> 
+         mutate(across(where(is.numeric), scale)) |>
+         select(-eid)),
+    conf.int = TRUE) |> 
+    mutate(term = gsub('`', '', term),
+           lpval = -log10(p.value),
+           scoeff = sign(estimate),
+           Population = pop) |>
+    filter(grepl(the_var, term)) |>
+    mutate(term = gsub('Yes', '', term)) |> 
+    relocate(Population)
+}
+```
+
+```{r populations}
+populations <- paste('NLR', c('UKB', 'WB', 'WB WGS'), sep = ' - ')
+```
+
+```{r nlr_ass}
+ukb_nlr_ass <- bind_rows(
+  bind_rows(
+    lapply(
+      X = populations,
+      FUN = function(x) fit_infl_age(pop = x))),
+  bind_rows(
+    lapply(
+      X = populations,
+      FUN = function(x) lapply(
+        X = infl_vars,
+        FUN = function(y) fit_infl_var(pop = x, the_var = y))))) |>
+  arrange(Population, term)
+```
+
+```{r fit_cn_age}
+fit_cn_age <- function() {
+  
+  df <- ukb_gwas_covars |>
+    select(-starts_with('Blood'), -Height)
+  
+  broom::tidy(
+    lm(CN ~ . , df |>
+         mutate(across(where(is.numeric), scale)) |>
+         select(-eid)),
+    conf.int = TRUE) |> 
+    mutate(term = gsub('`', '', term),
+           lpval = -log10(p.value),
+           scoeff = sign(estimate),
+           Population = '18S Ratio - WB WGS') |>
+    filter(grepl('Age', term)) |>
+    relocate(Population)
+
+}
+```
+
+```{r fit_cn_var}
+fit_cn_var <- function(the_var = 'Cancer') {
+  
+  df <- ukb_gwas_covars |>
+    select(-starts_with('Blood'), -Height) |>
+      inner_join(ukb_infl |> select(eid, all_of(the_var)),
+                 by = 'eid')
+  
+    broom::tidy(
+    lm(CN ~ . , df |>
+         mutate(across(where(is.numeric), scale)) |>
+         select(-eid)),
+    conf.int = TRUE) |> 
+    mutate(term = gsub('`', '', term),
+           lpval = -log10(p.value),
+           scoeff = sign(estimate),
+           Population = '18S Ratio - WB WGS') |>
+    filter(grepl(the_var, term)) |>
+    mutate(term = gsub('Yes', '', term)) |> 
+    relocate(Population)
+    
+}
+```
+
+```{r cn_ass}
+ukb_cn_ass <- bind_rows(
+  fit_cn_age(),
+  bind_rows(lapply(
+        X = infl_vars,
+        FUN = function(y) fit_cn_var(the_var = y))))
+```
+
+```{r}
+infl_ass <- bind_rows(
+  ukb_nlr_ass,
+  ukb_cn_ass) |>
+  rename(Analysis = Population, Variable = term) |>
+  mutate(Analysis = case_when(
+    grepl('18S', Analysis) ~ '18S Ratio in WB with WGS',
+    grepl('WGS', Analysis) ~ 'NLR in WB with WGS',
+    grepl('WB', Analysis) ~ 'NLR in all WB',
+    TRUE ~ 'NLR in all UKB',
+  )) |>
+  mutate(Analysis = fct_relevel(Analysis, '18S Ratio in WB with WGS',
+                                after = 3L)) |>
+  mutate(Variable = case_when(
+    grepl('Sq', Variable) ~ 'Age Squared',
+    grepl('Cancer', Variable) ~ 'Cancer',
+    TRUE ~  'Age'))
+```
+
+```{r}
+infl_sig_p <- infl_ass |>
+  ggplot(aes(x = Variable, y = lpval, 
+             fill = Analysis)) +
+  geom_col(position = position_dodge(width = 1.05),
+           alpha = 0.9, size = 0.75, colour = 'black') +
+  geom_hline(yintercept = -log10(0.05), colour = 'grey60', alpha = 0.8,
+             linewidth = 0.75, linetype = 'dashed') +
+  facet_grid(cols = vars(Variable), 
+             scales = 'free_x') +
+  scale_colour_brewer(palette = 'Greys') +
+  scale_fill_grey(start = 1, end = 0.1) +
+  scale_y_cut(breaks=c(10), space = 0.000001) +
+  expand_limits(y = c(-0.5, 275)) +
+  labs(x = '',  y = bquote(bold(-log[10](p-value)))) +
+  theme_pub() +
+  theme(
+    legend.position = 'bottom',
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    legend.title = element_text(size = 14, face = 'bold'),
+    legend.text = element_text(size = 12))
+```
+
+```{r}
+ggsave(
+  plot = infl_sig_p,
+  filename = file.path('..', 'figures', '2.C.- NLR influences.png'), 
+  height = 6, width = 6.5)
+```
+
+
+## D.- Staircase plots
+
+```{r}
+ukb_adj_47s <- read_csv(
+  file.path(root_fd, 'data', 'cn', 'ukb_adj_cn_wb.csv'),
+  col_types = cols())
+```
+
+```{r}
+ukb_br_ci_adj <- bind_rows(
+  ukb_covars_br |>
+    inner_join(ukb_adj_47s, by = 'eid') |>
+    group_by(the_group=NLR_group) |>
+    summarise(value = mean(adj_CN),
+              SD = sd(adj_CN),
+              N = n_distinct(eid),
+              margin = qt(ci,df=N-1)*SD/sqrt(N),
+              value_low = value - margin,
+              value_high = value + margin,
+              .groups = 'drop') |>
+    mutate(the_ratio = 'NLR'),
+  ukb_covars_br |>
+    inner_join(ukb_adj_47s, by = 'eid') |>
+    group_by(the_group=PLR_group) |>
+    summarise(value = mean(adj_CN),
+              SD = sd(adj_CN),
+              N = n_distinct(eid),
+              margin = qt(ci,df=N-1)*SD/sqrt(N),
+              value_low = value - margin,
+              value_high = value + margin,
+              .groups = 'drop') |>
+    mutate(the_ratio = 'PLR'),
+  ukb_covars_br |>
+    inner_join(ukb_adj_47s, by = 'eid') |>
+    group_by(the_group=SII_group) |>
+    summarise(value = mean(adj_CN),
+              SD = sd(adj_CN),
+              N = n_distinct(eid),
+              margin = qt(ci,df=N-1)*SD/sqrt(N),
+              value_low = value - margin,
+              value_high = value + margin,
+              .groups = 'drop') |>
+    mutate(the_ratio = 'SII'))
+```
+
+```{r}
+blood_ratios_ci_adj_narrow_p <- ukb_br_ci_adj |>
+  ggplot(aes(x = the_group, fill = the_group, 
+             ymin = value_low, ymax = value_high, y = value)) +
+  geom_crossbar(colour = 'grey20', alpha = 0.8, size = 0.75) +
+  scale_y_continuous(limits = c(1.55e-4, 1.65e-4),
+                     breaks = c(1.55e-4, 1.6e-4, 1.65e-4),
+                     labels = fancy_scientific) +
+  scale_fill_brewer(palette = 'Reds') +
+  labs(y = bquote(bold("SC-Adjusted 18S Ratio (Mean" %+-% "95% CI)"))) +
+  scale_x_discrete('NLR group', guide = guide_axis(n.dodge = 2))  +
+  theme_pub() +
+  theme(legend.position = 'none')
+```
+
+```{r}
+ggsave(
+  plot = blood_ratios_ci_adj_narrow_p,
+  filename = file.path('..', 'figures', '2.D.- Staircase.png'), 
+  height = 6, width = 8)
+```
+
+
+## Temporal Behaviour
+
+```{r}
+ukb_datetime <- read_csv(
+  file.path(root_fd, 'data', 'releases', 'pheno_9.csv'),
+  col_types = cols()) |>
+  select(eid, datetime = `3166-0.0`) |>
+  mutate(year = as.factor(lubridate::year(datetime)),
+         month = as.factor(lubridate::month(datetime)),
+         hour = as.factor(lubridate::hour(datetime)),
+         date = lubridate::date(datetime)) |>
+  filter(!is.na(datetime)) |>
+  filter(as.numeric(as.character(year)) > 2006) |>
+  mutate(delay = as.numeric(date - min(date)))
+```
+
+#### NLR
+
+```{r}
+ukb_nlr_date <- ukb_datetime |>
+    inner_join(ukb_nlr |>
+      filter(!is.na(NLR)), by = 'eid')
+```
+
+```{r}
+broom::tidy(lm.beta::lm.beta(
+  lm(NLR ~ delay, ukb_nlr_date)))
+```
+
+#### Neutrophil Counts
+
+```{r}
+ukb_bc <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_blood_counts.csv'),
+  col_types = cols())
+```
+
+```{r}
+ukb_bc_delay <- ukb_bc |>
+  inner_join(ukb_datetime, by = 'eid')
+```
+
+```{r}
+broom::tidy(lm.beta::lm.beta(
+  lm(`Neutrophil #` ~ delay, ukb_bc_delay)))
+```
+
+
+#### CN
+
+```{r}
+ukb_gwas_covars <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_gwas_covars.csv'),
+  col_types = cols())
+```
+
+```{r}
+ukb_covars_date <- ukb_datetime |>
+  select(eid, delay) |>
+  inner_join(ukb_gwas_covars |> select(-Height), by = 'eid')
+```
+
+```{r}
+broom::tidy(lm.beta::lm.beta(lm(CN ~ .,
+           ukb_covars_date |> 
+             select(-eid, -starts_with('Blood'))))) |> 
+  filter(term == 'delay')
+```
+
+
+```{r}
+ukb_cn_bc_date <- ukb_datetime |>
+  select(eid, delay) |>
+  inner_join(ukb_gwas_covars |> select(-Height, -starts_with('Blood')),
+             by = 'eid') |>
+  inner_join(ukb_bc |>
+               filter(!is.na(`Neutrophil #`),
+                      !is.na(`Lymphocyte #`),
+                      !is.na(`Platelet #`)), by = 'eid')
+  
+```
+
+```{r}
+broom::tidy(lm.beta::lm.beta(lm(CN ~ .,
+           ukb_cn_bc_date |> select(-eid)))) |> 
+  filter(grepl('#', term))
+```
+
+
+## E.- Seasonal Patterns
+
+```{r}
+ukb_nlr_month <- ukb_nlr_date |>
+    group_by(month) |>
+    summarise(value = mean(NLR),
+              SD = sd(NLR),
+              N = n_distinct(eid),
+              margin = qt(ci, df=N-1)*SD/sqrt(N),
+              value_low = value - margin,
+              value_high = value + margin,
+              .groups = 'drop') |>
+    mutate(variable = 'NLR')
+```
+
+```{r}
+ukb_cn_adj_month <- ukb_datetime |>
+  inner_join(ukb_adj_47s, by = 'eid') |>
+  group_by( month) |>
+  summarise(value = mean(adj_CN),
+            SD = sd(adj_CN),
+            N = n_distinct(eid),
+            margin = qt(ci,df=N-1)*SD/sqrt(N),
+            value_low = value - margin,
+            value_high = value + margin,
+            .groups = 'drop') |>
+  mutate(variable = 'SC-Adjusted 18S Ratio')
+```
+
+```{r}
+month_colours <- colorRampPalette(
+    c('navy', 'steelblue4', 'forestgreen',
+            'gold1', 'gold4', 'navy'))(14)[2:13]
+```
+
+```{r}
+monthly_nlr_p <- ukb_nlr_month |>
+  ggplot(aes(x = month, y = value, fill = month, colour = month)) +
+  geom_crossbar(aes(ymin = value_low, ymax = value_high),
+                alpha = 0.4, size = 0.75) +
+  facet_grid(rows = vars(variable)) +
+  scale_fill_manual(values = month_colours) +
+  scale_colour_manual(values = month_colours) +
+  scale_y_continuous(
+    name = NULL,
+    limits = c(2.25, 2.5),
+    breaks = c(2.3, 2.4, 2.5)) + 
+  theme_pub() +
+  theme(
+    legend.position = 'none',
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    plot.margin = margin(b = -200))
+```
+
+
+```{r}
+monthly_cn_adj_p <- ukb_cn_adj_month |>
+  ggplot(aes(x = month, y = value, fill = month, colour = month)) +
+  geom_crossbar(aes(ymin = value_low, ymax = value_high),
+                alpha = 0.4, size = 0.75) +
+  facet_grid(rows = vars(variable)) +
+  labs(x = 'Month of Blood Extraction') +
+  scale_fill_manual(values = month_colours) +
+  scale_colour_manual(values = month_colours) +
+  scale_y_continuous(
+    name = NULL,
+    limits = c(1.59e-4, 1.64e-4), 
+    breaks = c(1.6e-4, 1.62e-4, 1.64e-4), 
+    labels = fancy_scientific) +  
+  theme_pub() +
+  theme(
+    legend.position = 'none',
+    plot.margin = margin(b = -200, t = -200))
+```
+
+```{r}
+y_lab <- ggplot() + 
+  annotate(geom = "text", x = 1, y = 1, size = 5,
+           label = bquote(bold("Trait Mean (" %+-% "95% CI)")),
+           angle = 90) +
+  coord_cartesian(clip = "off") +
+  theme_void()
+
+
+monthly_p <- (y_lab | (monthly_nlr_p / monthly_cn_adj_p)) +
+  plot_layout(widths = c(0.03, 1))
+```
+
+```{r}
+ggsave(
+  plot = monthly_p,
+  filename = file.path('..', 'figures', '2.E.- Seasonal Patterns.png'), 
+  height = 5, width = 7)
+```
+
+## G.- Hourly Patterns
+
+```{r}
+ukb_nlr_hour <- ukb_datetime |>
+    inner_join(ukb_nlr, by = 'eid') |>
+    group_by(hour) |>
+    filter(n_distinct(eid) > 1000) |>
+    summarise(value = mean(NLR),
+              SD = sd(NLR),
+              N = n_distinct(eid),
+              margin = qt(ci,df=N-1)*SD/sqrt(N),
+              value_low = value - margin,
+              value_high = value + margin,
+              .groups = 'drop') |>
+    mutate(variable = 'NLR')
+```
+
+```{r}
+ukb_cn_adj_hour <- ukb_datetime |>
+    inner_join(ukb_adj_47s, by = 'eid') |>
+    group_by(hour) |>
+    filter(n_distinct(eid) > 100) |>
+    summarise(value = mean(adj_CN),
+              SD = sd(adj_CN),
+              N = n_distinct(eid),
+              margin = qt(ci,df=N-1)*SD/sqrt(N),
+              value_low = value - margin,
+              value_high = value + margin,
+              .groups = 'drop') |>
+  mutate(variable = 'SC-Adjusted 18S Ratio')
+```
+
+
+
+```{r}
+hour_colours <- colorRampPalette(
+    c('steelblue4',
+            'gold1', 'salmon4', 'navy'))(14)[1:13]
+```
+
+
+```{r}
+hourly_nlr_p <- ukb_nlr_hour |>
+  ggplot(aes(x = hour, y = value, fill = hour, colour = hour)) +
+  geom_crossbar(aes(ymin = value_low, ymax = value_high),
+                alpha = 0.4, size = 0.75) +
+  scale_fill_manual(values = hour_colours) +
+  scale_colour_manual(values = hour_colours) +
+  facet_grid(rows = vars(variable)) +
+  scale_y_continuous(
+    name = NULL,
+    limits = c(1.8, 2.6),
+    breaks = c(1.9, 2.2, 2.5)) + 
+  theme_pub() +
+  theme(
+    legend.position = 'none',
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    plot.margin = margin(l = 2, b = -200))
+```
+
+
+```{r}
+hourly_cn_adj_p <- ukb_cn_adj_hour |>
+  ggplot(aes(x = hour, y = value, fill = hour, colour = hour)) +
+  geom_crossbar(aes(ymin = value_low, ymax = value_high),
+                alpha = 0.4, size = 0.75) +
+  labs(x = 'Hour of Blood Extraction') +
+  scale_fill_manual(values = hour_colours) +
+  scale_colour_manual(values = hour_colours) +
+  facet_grid(rows = vars(variable)) +
+  scale_y_continuous(
+    name = NULL,
+    limits = c(1.5e-4, 1.7e-4), 
+    breaks = c(1.5e-4, 1.6e-4, 1.7e-4), 
+    labels = fancy_scientific) + 
+  theme_pub() +
+  theme(
+    legend.position = 'none',
+    plot.margin = margin(l = 5, b = -200, t = -200))
+```
+
+
+```{r}
+y_lab <- ggplot() + 
+  annotate(geom = "text", x = 1, y = 1, size = 5,
+           label = bquote(bold("Trait Mean (" %+-% "95% CI)")),
+           angle = 90) +
+  coord_cartesian(clip = "off") +
+  theme_void()
+
+
+hourly_p <- (y_lab | (hourly_nlr_p / hourly_cn_adj_p)) +
+  plot_layout(widths = c(0.03, 1))
+```
+```{r}
+ggsave(
+  plot = hourly_p,
+  filename = file.path('..', 'figures', '2.F.- Circadian Patterns.png'), 
+  height = 5, width = 7)
+```
+
+### Drift
+
+```{r}
+ukb_delay_covars <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_delay.csv'),
+  col_types = cols()) %>%
+  mutate(Drift = as.numeric(`Acquisition Time` - min(`Acquisition Time`))) |>
+  inner_join(ukb_gwas_covars, by = 'eid') |>
+  select(eid, Sex, contains('Age'), contains('Centre'), starts_with('PC'),
+         CN, `Adj TL`, Drift, Delay)
+```
+
+```{r}
+car::Anova(lm(CN ~ ., data = ukb_delay_covars |>
+             select(-eid)))
+```
+
+```{r}
+broom::tidy(lm(NLR ~ ., data = ukb_delay_covars |>
+             select(-CN) |>
+             inner_join(ukb_nlr, by = 'eid'))) |> 
+  tail()
+```
+```{r}
+lm(ukb_delay_covars$CN, ukb_delay_covars$Drift)
+```
