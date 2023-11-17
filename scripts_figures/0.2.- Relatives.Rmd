@@ -6,19 +6,19 @@ title: "0.2.- Identify relatives on the UK Biobank"
 source('0.0.- Setup.R')
 ```
 
-```{r}
+```{r read_demographics}
 ukb_demo <- read_csv(file.path(root_fd, 'data', 'pheno', 'ukb_demo.csv'),
                      col_types = cols())
 ```
 
-```{r read_47s}
+```{r read_cn}
 ukb_47s <- read_csv(file.path(root_fd, 'data', 'cn', 'ukb_ratios.csv'),
                     col_types = cols()) |>
   filter(rdna > 0) |>
   rename(CN = rdna_ratio)
 ```
 
-```{r 47s_wb}
+```{r find_cn_wb}
 ukb_47s_wb <- ukb_47s |>
   inner_join(ukb_demo |>
                select(eid, Eth_Back_Gen, Eth_Back),
@@ -27,7 +27,7 @@ ukb_47s_wb <- ukb_47s |>
   select(-starts_with('Eth_Back'))
 ```
 
-```{r read_relationships}
+```{r read_relatedness}
 ukb_rel <- read_delim(
   file.path(root_fd, 'data', 'metadata', 'ukb_rel.txt'),
   col_types = cols(), delim=' ') |>
@@ -40,7 +40,7 @@ ukb_rel <- read_delim(
            TRUE ~ 'Unknown'))
 ```
 
-```{r}
+```{r save_relatives_distance}
 ukb_rel |>
   write_csv(
     file.path(root_fd, 'data', 'pheno', 'ukb_rel_dist.csv'),
@@ -49,7 +49,7 @@ ukb_rel |>
 
 ## All relatives
 
-```{r}
+```{r assign_age_relatives}
 ukb_rel_ages <-  ukb_rel |>
   select(eid_1 = ID1, eid_2 = ID2, relation, dist) |>
   inner_join(ukb_demo |> select(eid, Age, Birth_Year),
@@ -62,26 +62,25 @@ ukb_rel_ages <-  ukb_rel |>
     eid_y = if_else(eid_o == eid_1, eid_2, eid_1),
     Age_o = if_else(Birth_Year_2 > Birth_Year_1, Age_1, Age_2),
     Age_y = if_else(eid_o == eid_1, Age_2, Age_1),
-    Birth_Year_o = if_else(Birth_Year_2 > Birth_Year_1, Birth_Year_1, Birth_Year_2),
+    Birth_Year_o = if_else(Birth_Year_2 > Birth_Year_1, 
+                           Birth_Year_1, Birth_Year_2),
     Birth_Year_y = if_else(eid_o == eid_1, Birth_Year_2, Birth_Year_1)) |>
   select(relation, dist, ends_with(c('_o', 'y')))
 ```
 
-```{r}
+```{r save_relatives_age}
 ukb_rel_ages |>
   write_csv(
     file.path(root_fd, 'data', 'pheno', 'ukb_rel_dist_age.csv'),
     na = '')
 ```
 
-
-
 ## First degree relatives
 
 IMPORTANT: 
 Removing "parental" pairs < 10 years of difference
 
-```{r first_pheno}
+```{r identify_first_degree_relatives}
 ukb_first_pheno <- ukb_rel |>
   filter(grepl('First', dist)) |>
   inner_join(
@@ -98,7 +97,7 @@ ukb_first_pheno <- ukb_rel |>
     by=c('ID2'='eid'))
 ```
 
-```{r first_types}
+```{r classify_first_degree_relatives}
 ukb_first_types <- ukb_first_pheno |>
   mutate(the_diff = Birth_Year_2 - Birth_Year_1,
          rel_type = if_else(
@@ -117,7 +116,7 @@ ukb_first_types <- ukb_first_pheno |>
   arrange(Birth_Year_o, Birth_Year_y)
 ```
 
-```{r first_all_types}
+```{r join_all_first_degree_relatives}
 ukb_types <- bind_rows(
     ukb_rel |>
       filter(grepl('MZ', dist)) |>
@@ -144,7 +143,7 @@ ukb_types <- bind_rows(
   arrange(Birth_Year_o, Birth_Year_y)
 ```
 
-```{r}
+```{r save_all_first_degree_relatives}
 ukb_types |>
   write_csv(
     file.path(root_fd, 'data', 'pheno', 'ukb_rel_first_type.csv'),
@@ -153,7 +152,7 @@ ukb_types |>
 
 ## Trios
 
-```{r trios}
+```{r identify_relative_trios}
 ukb_trios <- ukb_types |>
   group_by(eid_y) |>
   filter(rel_type == 'Parental') |>
@@ -164,7 +163,7 @@ ukb_trios <- ukb_types |>
   relocate(ends_with('_y'))
 ```
 
-```{r}
+```{r save_relative_trios}
 ukb_trios |>
   write_csv(
     file.path(root_fd, 'data', 'pheno', 'ukb_rel_trios.csv'),
@@ -173,7 +172,7 @@ ukb_trios |>
 
 ## Extended Families
 
-```{r}
+```{r identify_families}
 ukb_rel_eids_l <- ukb_rel_ages |>
   group_by(eid_o) |>
   summarise(Birth_Year_o = unique(Birth_Year_o),
@@ -181,9 +180,7 @@ ukb_rel_eids_l <- ukb_rel_ages |>
             .groups = 'keep') |>
   mutate(eids = list(c(eid_o, unlist(eids)))) |>
   pull(eids)
-```
 
-```{r}
 the_rows <- rep(1:length(ukb_rel_eids_l), lengths(ukb_rel_eids_l)) 
 the_cols <- factor(unlist(ukb_rel_eids_l))
 ukb_rel_eids_t <- Matrix::sparseMatrix(
@@ -199,15 +196,13 @@ ukb_rel_eids_g <- igraph::clusters(
 
 ukb_families_l <- tapply(ukb_rel_eids_l,
                    ukb_rel_eids_g, function(x) sort(unique(unlist(x))))
-```
 
-```{r}
 ukb_families <- as_tibble(
   setNames(stack(ukb_families_l)[2:1],
   c('fam_id', 'eid')))
 ```
 
-```{r}
+```{r save_families}
 ukb_families |>
   write_csv(
     file.path(root_fd, 'data', 'pheno', 'ukb_families.csv'),
@@ -216,7 +211,7 @@ ukb_families |>
 
 ### Supplementary: Hypothetical Example
 
-```{r}
+```{r define_hyp_relatives}
 hyp_by <- tribble(
   ~eid, ~Birth_Year,
   'A', 1940,
@@ -249,13 +244,14 @@ hyp_rel_by <- hyp_rel |>
   mutate(
     eid_o = if_else(Birth_Year_2 > Birth_Year_1, eid_1, eid_2),
     eid_y = if_else(eid_o == eid_1, eid_2, eid_1),
-    Birth_Year_o = if_else(Birth_Year_2 > Birth_Year_1, Birth_Year_1, Birth_Year_2),
+    Birth_Year_o = if_else(Birth_Year_2 > Birth_Year_1,
+                           Birth_Year_1, Birth_Year_2),
     Birth_Year_y = if_else(eid_o == eid_1, Birth_Year_2, Birth_Year_1)) |>
   select(rid, ends_with(c('_o', 'y'))) |>
   arrange(Birth_Year_o, eid_o, Birth_Year_y, eid_y)
 ```
 
-```{r}
+```{r identify_hyp_fam_step1}
 hyp_rel_eids_l <- hyp_rel_by |>
   group_by(eid_o) |>
   summarise(Birth_Year_o = unique(Birth_Year_o),
@@ -265,35 +261,33 @@ hyp_rel_eids_l <- hyp_rel_by |>
   pull(eids)
 ```
 
-
-
-```{r}
+```{r identify_hyp_fam_step2}
 hyp_rows <- rep(1:length(hyp_rel_eids_l), lengths(hyp_rel_eids_l))
 ```
 
-```{r}
+```{r identify_hyp_fam_step3}
 hyp_cols <- factor(unlist(hyp_rel_eids_l))
 ```
 
-```{r}
+```{r identify_hyp_fam_step4}
 hyp_rel_eids_t <- Matrix::sparseMatrix(
   i = hyp_rows, j = as.integer(hyp_cols),
   x = TRUE, dimnames = list(paste0('G', unique(hyp_rows)),
                             levels(hyp_cols)))
 ```
 
-```{r}
+```{r identify_hyp_fam_step5}
 hyp_rel_eids_c <- Matrix::tcrossprod(hyp_rel_eids_t,
                                      boolArith = TRUE)
 ```
 
-```{r}
+```{r identify_hyp_fam_step6}
 hyp_rel_eids_g <- igraph::clusters(
   igraph::graph_from_adjacency_matrix(
     as(hyp_rel_eids_c, "lMatrix")))$membership
 ```
 
-```{r}
+```{r identify_hyp_fam_step7}
 hyp_families_l <- tapply(
   hyp_rel_eids_l,
   hyp_rel_eids_g, function(x) sort(unique(unlist(x))))

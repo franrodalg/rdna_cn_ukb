@@ -10,7 +10,7 @@ source('0.0.- Setup.R')
 
 ## Conventional vs UKB-Style
 
-```{r gbr_18s}
+```{r read_1000g_gbr_18s_counts}
 gbr_18s_counts <- bind_rows(
   lapply(
     X = list.files(
@@ -21,7 +21,7 @@ gbr_18s_counts <- bind_rows(
       relocate(sample)))
 ```
 
-```{r gbr_chr}
+```{r read_1000g_gbr_num_chr_counts}
 gbr_chr_counts <- bind_rows(
   lapply(
     X = list.files(
@@ -35,37 +35,20 @@ gbr_chr_counts <- bind_rows(
   summarise(num_reads = sum(mapped))
 ```
 
-```{r gbr_ratios}
+```{r calculate_1000g_gbr_18s_ratios}
 gbr_ratios <- gbr_18s_counts |>
   inner_join(gbr_chr_counts, by = 'sample',
              suffix = c('_18s', '_wg')) |>
   mutate(ratio_18s = num_reads_18s / num_reads_wg)
 ```
 
-```{r total_cn_hall}
-hall_gbr <- read_tsv(
-  file.path(root_fd, '..', '1000g', 'data', 'hall_cn.txt'),
-  col_types = cols()) |>
-  filter(Continent == 'EUROPEAN') |>
-  inner_join(
-    read_csv(
-    file.path(root_fd, '..', '1000g', 'data', 'gbr.txt'),
-    col_names = 'Sample',
-    col_types = cols()),
-    by = 'Sample')
-
-hall_gbr_cn <- hall_gbr |>
-  select(sample = 'Sample',
-         `45S`=`HC.18S.CN`, `5S`=`HC.5S.CN`)
-```
-
-```{r gbr_cn}
+```{r read_1000g_gbr_cn}
 gbr_cn <- read_csv(
   file.path(root_fd, '..', '1000g', 'data', 'gbr_cn', 'cn.csv'),
   col_types = cols())
 ```
 
-```{r gbr_cn_p}
+```{r compare_1000g_gbr_plot}
 cn_estimation_comparison_p <- gbr_ratios |>
     inner_join(gbr_cn, by = 'sample') |>
   ggplot(aes(x = cn_18s, y = ratio_18s)) +
@@ -93,25 +76,42 @@ cn_estimation_comparison_p <- gbr_ratios |>
   theme(aspect.ratio = 1)
 ```
 
-```{r}
+```{r save_1000g_gbr_comparison_plot}
 ggsave(
   plot = cn_estimation_comparison_p,
   filename = file.path('..', 'figures', '1.B.- 1000g Comparison.png'), 
   height = 5, width = 5.5)
 ```
 
-
 ## C.- Range of Equivalent Total CN Estimates
 
-### Ratios
+### Hall et al
 
-```{r}
+```{r read_1000g_gbr_hall_cn}
+hall_gbr <- read_tsv(
+  file.path(root_fd, '..', '1000g', 'data', 'hall_cn.txt'),
+  col_types = cols()) |>
+  filter(Continent == 'EUROPEAN') |>
+  inner_join(
+    read_csv(
+    file.path(root_fd, '..', '1000g', 'data', 'gbr.txt'),
+    col_names = 'Sample',
+    col_types = cols()),
+    by = 'Sample')
+
+hall_gbr_cn <- hall_gbr |>
+  select(sample = 'Sample', cn=`HC.18S.CN`)
+```
+
+### 18S Ratios
+
+```{r read_cn_wb}
 ukb_47s_wb <- read_csv(
   file.path(root_fd, 'data', 'cn', 'ukb_47s_wb.csv'),
   col_types = cols())
 ```
 
-```{r read_baseline}
+```{r read_chromosome_sizes}
 baseline <- read_csv(
   file.path(root_fd, '..', 'data', 'ref', 'hg38_chromosome_sizes.csv'),
   col_types = cols()) |>
@@ -119,7 +119,9 @@ baseline <- read_csv(
   pull(total_size)
 ```
 
-```{r total_cn_wb_wide}
+### Comparison
+
+```{r compare_total_cn_plot}
 cn_total_comparison_wp <- ukb_47s_wb |>
   select(eid, rdna, wg) |>
   mutate(cn = (rdna / 1871) / (wg / baseline)) |>
@@ -127,7 +129,6 @@ cn_total_comparison_wp <- ukb_47s_wb |>
   mutate(cohort = 'UKB WB') |>
   bind_rows(
     hall_gbr_cn |>
-      select(cn = `45S`) |>
       mutate(cohort = '1000g GBR')) |>
   group_by(cohort) |>
   mutate(cohort = paste0(cohort, '\n',
@@ -155,8 +156,7 @@ cn_total_comparison_wp <- ukb_47s_wb |>
   theme(legend.position = 'none') 
 ```
 
-
-```{r}
+```{r save_total_cn_comparison_plot}
 ggsave(
   plot = cn_total_comparison_wp,
   filename = file.path('..', 'figures', '1.C.- Total CN Comparison.png'), 
@@ -165,19 +165,19 @@ ggsave(
 
 ## D.- Sequencing centre
 
-```{r}
+```{r read_cn}
 ukb_47s <- read_csv(
   file.path(root_fd, 'data', 'cn', 'ukb_47s.csv'),
   col_types = cols())
 ```
 
-```{r read_sr}
+```{r read_seq_rel}
 ukb_sr <- read_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_sr.csv'),
   col_types = cols())
 ```
 
-```{r sr_cn_wide}
+```{r plot_seq_rel}
 sr_wp <- ukb_sr |>
   inner_join(ukb_47s, by = 'eid') |>
   group_by(`Seq Release`) |> 
@@ -206,18 +206,16 @@ sr_wp <- ukb_sr |>
   theme(legend.position = 'none') 
 ```
 
-
-```{r}
+```{r plot_seq_rel_p}
 ggsave(
   plot = sr_wp,
   filename = file.path('..', 'figures', '1.D.- Sequencing Releases.png'), 
   height = 5, width = 5)
 ```
 
-
 ## S2.- Adjustment by Sequencing Centre
 
-```{r adj_cn_diff}
+```{r adjust_cn}
 ukb_adj_47s_diff <- ukb_47s %>%
   inner_join(ukb_sr, by = 'eid') |> 
   mutate(
@@ -228,7 +226,7 @@ ukb_adj_47s_diff <- ukb_47s %>%
   filter(eid %in% ukb_47s_wb$eid)
 ```
 
-```{r}
+```{r save_adj_cn}
 ukb_adj_47s_diff |>
   select(eid, adj_CN) |>
   write_csv(
@@ -236,7 +234,7 @@ ukb_adj_47s_diff |>
     na = '')
 ```
 
-```{r adj_cn_diff_p}
+```{r plot_adj_cn_diff}
 adj_cn_diff_p <- ukb_adj_47s_diff |>
   ggplot(aes(x = `Seq Centre`, y = adj_CN)) +
   geom_boxplot(
@@ -260,42 +258,34 @@ adj_cn_diff_p <- ukb_adj_47s_diff |>
         aspect.ratio = 1) 
 ```
 
-```{r adj_cn_diff_save}
+```{r save_adj_cn_diff_plot}
 ggsave(
   plot = adj_cn_diff_p,
   filename = file.path('..', 'figures_supp', 'S2.- Adjusted CN.png'), 
   height = 5, width = 5)
 ```
 
-
 ## E.- Self-reported Ethnic Background
 
-```{r}
+```{r read_demographics}
 ukb_demo <- read_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_demo.csv'),
   col_types = cols())
 ```
 
-```{r read_sr}
-ukb_sr <- read_csv(
-  file.path(root_fd, 'data', 'pheno', 'ukb_sr.csv'),
-  col_types = cols())
-```
-
-```{r}
+```{r read_assessment_centre}
 ukb_ac <- read_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_ac.csv'),
   col_types = cols())
 ```
 
-```{r}
+```{r read_adj_tel_length}
 ukb_atl <- read_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_adj_tl.csv'),
   col_types = cols())
 ```
 
-
-```{r eth}
+```{r read_eth}
 ukb_eth <- ukb_demo |>
   mutate(eth_super_num = substr(as.character(Eth_Back), 1, 1)) |>
   group_by(eth_super_num) |>
@@ -312,7 +302,7 @@ ukb_eth <- ukb_demo |>
   mutate(Eth_Super = forcats::fct_infreq(Eth_Super)) 
 ```
 
-```{r cn_eth}
+```{r construct_cn_eth_covars}
 ukb_eth_cn <- ukb_eth |> 
   inner_join(ukb_47s, by = 'eid') |>
   inner_join(ukb_sr, by = 'eid') |>
@@ -321,7 +311,7 @@ ukb_eth_cn <- ukb_eth |>
   mutate(`Age Sq` = Age * Age)
 ```
 
-```{r}
+```{r fit_cn_eth}
 broom::tidy(
   car::Anova(lm(CN ~ Sex + Age + `Age Sq` +
                   `Seq Centre` + `As Centre` + 
@@ -329,8 +319,7 @@ broom::tidy(
               data = ukb_eth_cn)))
 ```
 
-
-```{r }
+```{r slice_cn_eth }
 ukb_eth_sr <- ukb_eth_cn |>
   group_by(Eth_Super, `Seq Centre`) |>
   summarise(value = mean(CN),
@@ -342,7 +331,7 @@ ukb_eth_sr <- ukb_eth_cn |>
             .groups = 'drop')
 ```
 
-```{r eth}
+```{r plot_cn_eth}
 eth_p <- ukb_eth_sr |>
   mutate(
     eth = forcats::fct_rev(
@@ -351,7 +340,8 @@ eth_p <- ukb_eth_sr |>
         c('White', 'Black or Black British', 'Asian or Asian British',
           'Chinese', 'Mixed', 'Other ethnic group')))) |>
   ggplot(aes(y = eth)) +
-  geom_crossbar(aes(x = value, xmin = value_low, xmax = value_high, fill = eth),
+  geom_crossbar(aes(x = value, xmin = value_low, 
+                    xmax = value_high, fill = eth),
                     fatten = 1.5, linewidth = 0.75,  color = 'grey20',) +
   facet_grid(cols = vars(`Seq Centre`)) +
   scale_fill_brewer(palette = 'Blues') +
@@ -365,7 +355,7 @@ eth_p <- ukb_eth_sr |>
         axis.text.y = element_text(size = 12))
 ```
 
-```{r}
+```{r save_cn_eth_p}
 ggsave(
   plot = eth_p,
   filename = file.path('..', 'figures', '1.E.- Ethnicities.png'), 
@@ -374,7 +364,7 @@ ggsave(
 
 ## C,D,E.- Joint Row
 
-```{r}
+```{r save_cde_row}
 ggsave(
   plot = (cn_total_comparison_wp | sr_wp | eth_p) +
     plot_layout(widths = c(0.25, 0.35, 0.4)),
@@ -384,34 +374,28 @@ ggsave(
 
 ## S3.- ANOVA
 
-```{r}
+```{r read_covars}
 ukb_gwas_covars <- read_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_gwas_covars.csv'),
   col_types = cols())
 ```
 
-```{r}
+```{r fit_cn_covars}
 covars_lm <- lm(CN ~ . , ukb_gwas_covars |>
        select(-eid, -Height, 
               -starts_with('Blood')))
 ```
 
-```{r}
-broom::tidy(covars_lm)
-```
-
-
-```{r}
-(covar_anova_no_blood <- car::Anova(
+```{r anova_cn_covars}
+covar_anova_no_blood <- car::Anova(
   covars_lm) |>
   broom::tidy() |> 
   mutate(lpval = -log10(p.value)) |>
   filter(term != 'Residuals') |>
-  mutate(term = fct_inorder(gsub('`', '', term))))
+  mutate(term = fct_inorder(gsub('`', '', term)))
 ```
 
-
-```{r}
+```{r plot_anova_cn_covars}
 covar_anova_no_blood_p <- covar_anova_no_blood |>
   ggplot(aes(x = term, y = lpval)) +
   geom_col(alpha = 0.5, colour = 'grey20', linewidth = 1) +
@@ -421,7 +405,7 @@ covar_anova_no_blood_p <- covar_anova_no_blood |>
         axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
-```{r}
+```{r save_anova_cn_covars_plot}
 ggsave(
   plot = covar_anova_no_blood_p,
   filename = file.path('..', 'figures_supp',
@@ -431,13 +415,13 @@ ggsave(
 
 ## S4.- Age
 
-```{r age_sex_cn}
+```{r combine_cn_seq_rel_demo}
 ukb_sr_cn_age_sex <- ukb_sr |>
   inner_join(ukb_47s, by = 'eid') |>
   inner_join(ukb_demo, by = 'eid')
 ```
 
-```{r age_cn_wb_p}
+```{r plot_cn_age}
 age_p <- ukb_sr_cn_age_sex |>
   filter(Eth_Back_Gen == 1, Eth_Back == 1001) |>
   ggplot(aes(x = Age, y = CN)) +
@@ -460,7 +444,7 @@ age_p <- ukb_sr_cn_age_sex |>
   theme(legend.position = 'none') 
 ```
 
-```{r}
+```{r save_cn_age_plot}
 ggsave(
   plot = age_p,
   filename = file.path('..', 'figures_supp', 'S4.- Age.png'), 
@@ -469,7 +453,7 @@ ggsave(
 
 ## S6.- Sex
 
-```{r sex_cn_wb_p}
+```{r plot_cn_sex}
 sex_p <- ukb_sr_cn_age_sex |>
   filter(Eth_Back_Gen == 1, Eth_Back == 1001) |>
   ggplot(aes(x = Sex, y = CN)) +
@@ -493,7 +477,7 @@ sex_p <- ukb_sr_cn_age_sex |>
   theme(legend.position = 'none')
 ```
 
-```{r}
+```{r save_cn_sex_plot}
 ggsave(
   plot = sex_p,
   filename = file.path('..', 'figures_supp',
@@ -503,7 +487,7 @@ ggsave(
 
 ## F.- Relatives (adjusted for sequencing centre)
 
-```{r}
+```{r read_relatives}
 ukb_rel_dist <- read_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_rel_dist.csv'),
   col_types = cols()) |>
@@ -511,7 +495,7 @@ ukb_rel_dist <- read_csv(
   mutate(rel_type = forcats::fct_relevel(rel_type, 'MZ Twins'))
 ```
 
-```{r rel_dist_adj_diff_47s}
+```{r compare_cn_relatives}
 ukb_rel_dist_adj_47s_diff <- ukb_rel_dist |>
   inner_join(
     ukb_adj_47s_diff |> select(eid, CN = adj_CN),
@@ -521,12 +505,7 @@ ukb_rel_dist_adj_47s_diff <- ukb_rel_dist |>
     by = c('eid_2' = 'eid'), suffix = c('_1', '_2'))
 ```
 
-```{r}
-ukb_rel_dist_adj_47s_diff |> pull(rel_type) |> table()
-```
-
-
-```{r rel_dist_47s_p}
+```{r plot_cn_relatives_comparison}
 ukb_rel_dist_adj_47s_diff_p <- ukb_rel_dist_adj_47s_diff |> 
   mutate(rel_type = case_when(
     grepl('MZ', rel_type) ~ 'Monozygotic Twins\n[N = 26 pairs]',
@@ -563,7 +542,7 @@ ukb_rel_dist_adj_47s_diff_p <- ukb_rel_dist_adj_47s_diff |>
         strip.text = element_text(size = 18))
 ```
 
-```{r rel_dist_adj_47s_diff_save}
+```{r save_cn_relatives_comparison_plot}
 ggsave(
   plot = ukb_rel_dist_adj_47s_diff_p,
   filename = file.path('..', 'figures', '1.F. - Relatives by distance.png'),
@@ -572,7 +551,7 @@ ggsave(
 
 ## S5.- Difference of means in first-degree relatives
 
-```{r}
+```{r construct_adj_cn_relatives}
 ukb_types_cn_adj <- read_csv(
     file.path(root_fd, 'data', 'pheno', 'ukb_rel_first_type.csv'),
     col_types = cols()) |>
@@ -580,7 +559,7 @@ ukb_types_cn_adj <- read_csv(
   inner_join(ukb_adj_47s_diff, by = c('eid_y' = 'eid'), suffix = c('_o', '_y'))
 ```
 
-```{r}
+```{r plot_adj_cn_relatives_comparison}
 ukb_cn_comp_o_y_p <- ukb_types_cn_adj |>
   filter(rel_type != 'Twin') |>
   select(rel_type, Older = adj_CN_o, Younger = adj_CN_y) |>
@@ -595,10 +574,11 @@ ukb_cn_comp_o_y_p <- ukb_types_cn_adj |>
   scale_fill_brewer(palette = 'Greys') +
   labs(y = 'SC-Adjusted 18S Ratio') +
   theme_pub() +
-  theme(legend.position = 'none')
+  theme(legend.position = 'none',
+        aspect.ratio = 0.75)
 ```
 
-```{r}
+```{r save_adj_cn_relatives_comparison_plot}
 ggsave(
   plot = ukb_cn_comp_o_y_p,
   filename = file.path('..', 'figures_supp',
@@ -606,11 +586,54 @@ ggsave(
   units = 'in', width = 10, height = 5)
 ```
 
+```{r compare_cn_relatives_age}
+ukb_types_cn <- read_csv(
+    file.path(root_fd, 'data', 'pheno', 'ukb_rel_first_type.csv'),
+    col_types = cols()) |>
+  inner_join(ukb_47s_wb |> inner_join(ukb_sr, by = 'eid'),
+             by = c('eid_o' = 'eid')) |>
+  inner_join(ukb_47s_wb |> inner_join(ukb_sr, by = 'eid'),
+             by = c('eid_y' = 'eid'), suffix = c('_o', '_y'))
+```
+
+```{r find_cn_relatives_same_seq_centre}
+ukb_cn_comp_o_y_sc <- ukb_types_cn |>
+  filter(rel_type != 'Twin', `Seq Centre_o` == `Seq Centre_y`) |>
+  select(rel_type, SC = `Seq Centre_o`,
+         Older = CN_o, Younger = CN_y) |>
+  pivot_longer(-c(rel_type, SC), 
+               names_to = 'Participant', values_to = 'CN')
+```
+
+```{r plot_cn_relatives_same_seq_centre}
+ukb_cn_comp_o_y_sc_p <- ukb_cn_comp_o_y_sc |>
+  ggplot(aes(x = Participant, y = CN, fill = Participant)) +
+  geom_boxplot(outlier.alpha = 0.6, outlier.shape = 21, linewidth = 0.75) +
+  ggpubr::stat_compare_means(paired = TRUE, comparisons = list(c(1, 2))) +
+  facet_grid(cols = vars(rel_type), rows = vars(SC)) +
+  scale_y_continuous(limits = c(0, 6e-4),
+                     breaks = c(0, 3e-4, 6e-4),
+                     labels = fancy_scientific) +
+  scale_fill_brewer(palette = 'Greys') +
+  labs(y = '18S Ratio') +
+  theme_pub() +
+  theme(legend.position = 'none',
+        aspect.ratio = 0.75)
+```
+
+```{r save_cn_relatives_same_seq_cenre_plot}
+ggsave(
+  plot = ukb_cn_comp_o_y_sc_p,
+  filename = file.path('..', 'figures_supp',
+                       'S5.- Older-Younger relative comparison, SC.png'),
+  units = 'in', width = 10, height = 11)
+```
+
 ## G.- GWAS 
 
 ### Complete dataset with `--modelSnps`
 
-```{r gwas_cn_msnps}
+```{r read_cn_gwas_results}
 bolt_lmm_cn <- read_tsv(
   file.path(root_fd, 'data', 'gwas_imp', 'cn_msnps.tsv'),
   col_types = cols()) |> 
@@ -618,13 +641,13 @@ bolt_lmm_cn <- read_tsv(
   select(snp=SNP, chr=CHR, pos=BP, pval=P_BOLT_LMM_INF) 
 ```
 
-```{r}
+```{r calculate_cn_gwas_infl_factor}
 bolt_lmm_cn_chisq <- qchisq(1-bolt_lmm_cn$pval, 1)
 
 median(bolt_lmm_cn_chisq)/qchisq(0.5,1)
 ```
 
-```{r manhattan_setup}
+```{r setup_manhattan_plot}
 manhattan_cn <- bolt_lmm_cn |>
   mutate(lpval = -log10(pval)) |>  
   mutate(pcol = case_when(
@@ -633,7 +656,7 @@ manhattan_cn <- bolt_lmm_cn |>
     TRUE ~ 'odd')) 
 ```
 
-```{r manhattan_plot}
+```{r plot_manhattan_cn}
 manhattan_cn_p <- manhattan_cn |>
   ggplot(aes(x = pos, y = lpval)) +
   ggrastr::geom_point_rast(aes(colour = pcol), size = 0.2) +
@@ -666,17 +689,16 @@ manhattan_cn_p <- manhattan_cn |>
     axis.title.y = element_text(size = 12))
 ```
 
-```{r manhattan_cn_save, eval = F}
+```{r save_manhattan_cn_plot}
 ggsave(
   plot = manhattan_cn_p,
   filename = file.path('..', 'figures', '2.G.- Manhattan CN.png'), 
   height = 2, width = 12, units = 'in')
 ```
 
-
 ### Supplementary: Unrelated individuals
 
-```{r gwas_cn_unrel}
+```{r read_cn_unrel_gwas_results}
 bolt_lmm_cn_unrel <- read_tsv(
   file.path(root_fd, 'data', 'gwas_imp', 'cn_msnps_unrel.tsv'),
   col_types = cols()) |> 
@@ -684,14 +706,13 @@ bolt_lmm_cn_unrel <- read_tsv(
   select(snp=SNP, chr=CHR, pos=BP, pval=P_BOLT_LMM_INF) 
 ```
 
-
-```{r}
+```{r calculate_cn_unrel_gwas_infl_factor}
 bolt_lmm_cn_unrel_chisq <- qchisq(1-bolt_lmm_cn_unrel$pval, 1)
 
 median(bolt_lmm_cn_unrel_chisq)/qchisq(0.5,1)
 ```
 
-```{r}
+```{r setup_manhattan_cn_unrel_plot}
 manhattan_cn_unrel <- bolt_lmm_cn_unrel |>
   mutate(lpval = -log10(pval)) |>  
   mutate(pcol = case_when(
@@ -700,7 +721,7 @@ manhattan_cn_unrel <- bolt_lmm_cn_unrel |>
     TRUE ~ 'odd')) 
 ```
 
-```{r manhattan_plot_unrel}
+```{r plot_manhattan_cn_unrel}
 manhattan_cn_unrel_p <- manhattan_cn_unrel |>
   ggplot(aes(x = pos, y = lpval)) +
   ggrastr::geom_point_rast(aes(colour = pcol), size = 0.2) +
@@ -733,7 +754,7 @@ manhattan_cn_unrel_p <- manhattan_cn_unrel |>
     axis.title.y = element_text(size = 12))
 ```
 
-```{r manhattan_cn_unrel_save, eval = F}
+```{r save_manhattan_cn_unrel}
 ggsave(
   plot = manhattan_cn_unrel_p,
   filename = file.path('..', 'figures_supp',
@@ -743,7 +764,7 @@ ggsave(
 
 ### Supplementary: No Control for Blood Composition 
 
-```{r gwas_no_blood}
+```{r read_cn_no_blood_gwas_results}
 bolt_lmm_cn_msnps_no_blood <- read_tsv(
   file.path(root_fd, 'data', 'gwas_imp', 'cn_msnps_no_blood.tsv'),
   col_types = cols()) |> 
@@ -751,7 +772,7 @@ bolt_lmm_cn_msnps_no_blood <- read_tsv(
   select(snp=SNP, chr=CHR, pos=BP, pval)
 ```
 
-```{r manhattan_cn_no_blood_setup}
+```{r setup_manhattan_cn_no_blood}
 manhattan_cn_no_blood <- bolt_lmm_cn_msnps_no_blood |>
   mutate(lpval = -log10(pval)) |>  
   mutate(pcol = case_when(
@@ -760,7 +781,7 @@ manhattan_cn_no_blood <- bolt_lmm_cn_msnps_no_blood |>
     TRUE ~ 'odd')) 
 ```
 
-```{r manhattan_cn_no_blood_plot}
+```{r plot_manhattan_cn_no_blood}
 manhattan_cn_no_blood_p <- manhattan_cn_no_blood |>
   ggplot(aes(x = pos, y = lpval)) +
   ggrastr::geom_point_rast(aes(colour = pcol), size = 0.2) +
@@ -793,7 +814,7 @@ manhattan_cn_no_blood_p <- manhattan_cn_no_blood |>
     axis.title.y = element_text(size = 12))
 ```
 
-```{r manhattan_cn_no_blood_save, eval = F}
+```{r save_manhattan_cn_no_blood_plot}
 ggsave(
   plot = manhattan_cn_no_blood_p,
   filename = file.path('..', 'figures_supp', 
@@ -803,7 +824,7 @@ ggsave(
 
 ### Supplementary: Sequencing Centre
 
-```{r gwas_cn_msnps_sc}
+```{r read_cn_seq_centre_gwas_results}
 bolt_lmm_cn_sc <- bind_rows(
   read_tsv(
     file.path(root_fd, 'data', 'gwas_imp', 'cn_sanger_msnps.tsv'),
@@ -817,7 +838,7 @@ bolt_lmm_cn_sc <- bind_rows(
   select(snp=SNP, chr=CHR, pos=BP, pval=P_BOLT_LMM_INF, se = SE, beta = BETA, sc) 
 ```
 
-```{r manhattan_setup_sc}
+```{r setup_manhattan_cn_seq_centre}
 manhattan_cn_sc <- bolt_lmm_cn_sc |>
   mutate(lpval = -log10(pval)) |>  
   mutate(pcol = case_when(
@@ -826,7 +847,7 @@ manhattan_cn_sc <- bolt_lmm_cn_sc |>
     TRUE ~ 'odd')) 
 ```
 
-```{r manhattan_plot_sc}
+```{r plot_manhattan_cn_seq_centre}
 manhattan_cn_sc_p <- manhattan_cn_sc |>
   ggplot(aes(x = pos, y = lpval)) +
   ggrastr::geom_point_rast(aes(colour = pcol), size = 0.2) +
@@ -860,7 +881,7 @@ manhattan_cn_sc_p <- manhattan_cn_sc |>
     axis.title.y = element_text(size = 12))
 ```
 
-```{r manhattan_sc_save, eval = F}
+```{r save_manhattan_cn_seq_centre_plot}
 ggsave(
   plot = manhattan_cn_sc_p,
   filename = file.path('..', 'figures', 'S9.- Manhattan CN by SC.png'), 
@@ -869,11 +890,12 @@ ggsave(
 
 ### Supplementary: Zoom in
 
-```{r}
-bolt_lmm_cn_top_pos <- bolt_lmm_cn |> filter(pval == min(pval)) |> pull(pos)
+```{r find_manhattan_cn_top_hit}
+bolt_lmm_cn_top_pos <- bolt_lmm_cn |> 
+  filter(pval == min(pval)) |> pull(pos)
 ```
 
-```{r}
+```{r find_manhattan_cn_top_hit_neighbourhood}
 manhattan_cn_neigh <- bind_rows(
   bolt_lmm_cn |> filter(chr == 2,
                       pos > (bolt_lmm_cn_top_pos - 50000),
@@ -884,7 +906,7 @@ manhattan_cn_neigh <- bind_rows(
                       pos < (bolt_lmm_cn_top_pos + 50000)))
 ```
 
-```{r}
+```{r plot_manhattan_cn_top_hit_neighbourhood}
 manhattan_cn_neigh_p <- manhattan_cn_neigh |>
   mutate(lpval = -log10(pval),
          pcol = if_else(pos == bolt_lmm_cn_top_pos, 'sig', 'nosig'),
@@ -917,7 +939,7 @@ manhattan_cn_neigh_p <- manhattan_cn_neigh |>
     strip.text.x = element_text(size = 7))
 ```
 
-```{r manhattan_top_save, eval = F}
+```{r save_manhattan_cn_top_hit_neighbourhood_plot}
 ggsave(
   plot = manhattan_cn_neigh_p,
   filename = file.path('..', 'figures_supp', 
@@ -927,7 +949,7 @@ ggsave(
 
 ### Supplementary: Top hits per sequencing centre
 
-```{r}
+```{r find_manhattan_cn_sanger_top_hits}
 bolt_lmm_cn_sanger_top <- bolt_lmm_cn_sc |>
   filter(sc == 'Sanger') |>
   arrange(pval) |>
@@ -941,7 +963,7 @@ bolt_lmm_cn_sanger_top <- bolt_lmm_cn_sc |>
       forcats::fct_rev())
 ```
 
-```{r}
+```{r plot_manhattan_cn_sanger_top_hits}
 bolt_lmm_cn_sanger_top_p <- bolt_lmm_cn_sanger_top |>
   select(snp, starts_with('pval')) |>
   pivot_longer(-snp, values_to = 'pval', names_to = 'sc') |>
@@ -962,7 +984,7 @@ bolt_lmm_cn_sanger_top_p <- bolt_lmm_cn_sanger_top |>
   ggtitle('Top Sanger hits')
 ```
 
-```{r}
+```{r find_manhattan_cn_decode_top_hits}
 bolt_lmm_cn_decode_top <- bolt_lmm_cn_sc |>
   filter(sc == 'deCODE') |>
   arrange(pval) |>
@@ -976,7 +998,7 @@ bolt_lmm_cn_decode_top <- bolt_lmm_cn_sc |>
       forcats::fct_rev())
 ```
 
-```{r}
+```{r plot_manhattan_cn_sanger_top_hits}
 bolt_lmm_cn_decode_top_p <- bolt_lmm_cn_decode_top |>
   select(snp, starts_with('pval')) |>
   pivot_longer(-snp, values_to = 'pval', names_to = 'sc') |>
@@ -997,13 +1019,11 @@ bolt_lmm_cn_decode_top_p <- bolt_lmm_cn_decode_top |>
   ggtitle('Top deCODE hits')
 ```
 
-```{r}
+```{r save_manhattan_cn_seq_centre_top_hits_plots}
 bolt_lmm_cn_sc_top_p <- (bolt_lmm_cn_sanger_top_p +
   bolt_lmm_cn_decode_top_p) &
   theme(legend.position = 'bottom')
-```
 
-```{r}
 ggsave(
   plot = bolt_lmm_cn_sanger_top_p + theme(
     legend.position = 'bottom',
@@ -1011,9 +1031,7 @@ ggsave(
   filename = file.path('..', 'figures_supp',
                        'S9 - Manhattan CN, Top (for legend).png'), 
   height = 8, width = 7)
-```
 
-```{r}
 ggsave(
   plot = bolt_lmm_cn_sc_top_p &
     theme(legend.position = 'none'),
@@ -1024,56 +1042,13 @@ ggsave(
 
 ## S8.- Association with Blood Principal Components
 
-### ANOVA
-
-
-```{r}
-covar_anova <- car::Anova(
-  lm(CN ~ . , ukb_gwas_covars |>
-       select(-eid, -Height))) |>
-  broom::tidy() |> 
-  mutate(lpval = -log10(p.value)) |>
-  filter(term != 'Residuals') |>
-  mutate(term = fct_inorder(gsub('`', '', term)))
-```
-
-```{r}
-covar_anova_p <- covar_anova |>
-  ggplot(aes(x = term, y = lpval)) +
-  geom_col(alpha = 0.5, colour = 'grey20') +
-  labs(x = '', y = bquote(bold(-log[10](p-value[ANOVA])))) +
-  theme_pub() +
-  theme(legend.position = 'none',
-        axis.text.x = element_text(angle = 45, hjust = 1))
-```
-
-```{r}
-ggsave(
-  plot = covar_anova_p,
-  filename = file.path('..', 'figures_supp', 'S8.- ANOVA from covariates.png'), 
-  height = 5, width = 10)
-```
-
-```{r}
-blood_pc_anova_p <- covar_anova |>
-  filter(grepl('Blood', term)) |> 
-  ggplot(aes(x = term, y = lpval)) +
-  geom_col(alpha = 0.5, colour = 'grey20', linewidth = 0.75) +
-  labs(x = '', y = bquote(bold(-log[10](p-value[ANOVA])))) +
-  theme_pub() +
-  theme(aspect.ratio = 0.75, 
-        legend.position = 'none',
-        axis.text.x = element_blank(),
-        axis.ticks.x = element_blank())
-```
-
 ### Contribution to Blood PCs
 
-```{r}
+```{r read_blood_pcs}
 load(file.path(root_fd, 'data', 'pheno', 'ukb_blood_pcs.Rdata'))
 ```
 
-```{r}
+```{r plot_blood_pcs_contributions}
 blood_pc_contr_p <- ukb_pheno_blood_pcs$var$contrib |>
   as_tibble(rownames = 'Cell Type') |>
   pivot_longer(-`Cell Type`, names_to = 'Dim', values_to = 'Mag') |>
@@ -1091,25 +1066,7 @@ blood_pc_contr_p <- ukb_pheno_blood_pcs$var$contrib |>
         axis.ticks = element_blank())
 ```
 
-```{r}
-blood_pc_p <- ((
-  blood_pc_anova_p + 
-    theme(
-      axis.ticks.length.x = unit(0, "pt"),
-      plot.margin = unit(c(5.5, 5.5, -10, 5.5), 'pt'))) /(
-  blood_pc_contr_p + 
-    theme(
-       plot.margin = unit(c(-10, 5.5, 5.5, 5.5), 'pt'))))
-```
-
-```{r}
-ggsave(
-  plot = blood_pc_p,
-  filename = file.path('..', 'figures_supp', 'S8.- Blood PCs.png'), 
-  height = 6.5, width = 5.5)
-```
-
-```{r}
+```{r plot_blood_pcs_variance}
 blood_pc_var_p <- ukb_pheno_blood_pcs$eig |> as.data.frame() |>
   rownames_to_column('PC') |>
   mutate(PC = gsub('comp', 'Dim. ', PC)) |> 
@@ -1123,18 +1080,39 @@ blood_pc_var_p <- ukb_pheno_blood_pcs$eig |> as.data.frame() |>
   theme_pub()
 ```
 
-```{r}
-ggsave(
-  plot = blood_pc_var_p,
-  filename = file.path('..', 'figures_supp', 'S8 - Blood PC variance.png'), 
-  height = 3, width = 5)
-```
-
-### Joint 
-
-```{r}
+```{r save_blood_pcs_first_row_plots}
 ggsave(
   plot = (blood_pc_contr_p | blood_pc_var_p),
   filename = file.path('..', 'figures_supp', 'S8.- Blood PC, first row.png'), 
+  height = 5, width = 10)
+```
+
+### ANOVA
+
+```{r calculate_anova_covars_with_blood}
+covar_anova <- car::Anova(
+  lm(CN ~ . , ukb_gwas_covars |>
+       select(-eid, -Height))) |>
+  broom::tidy() |> 
+  mutate(lpval = -log10(p.value)) |>
+  filter(term != 'Residuals') |>
+  mutate(term = fct_inorder(gsub('`', '', term)))
+```
+
+```{r plot_anova_covars_with_blood}
+covar_anova_p <- covar_anova |>
+  ggplot(aes(x = term, y = lpval)) +
+  geom_col(alpha = 0.5, colour = 'grey20') +
+  labs(x = '', y = bquote(bold(-log[10](p-value[ANOVA])))) +
+  theme_pub() +
+  theme(legend.position = 'none',
+        axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r save_anova_covars_with_blood_plot}
+ggsave(
+  plot = covar_anova_p,
+  filename = file.path('..', 'figures_supp',
+                       'S8.- ANOVA from covariates.png'), 
   height = 5, width = 10)
 ```

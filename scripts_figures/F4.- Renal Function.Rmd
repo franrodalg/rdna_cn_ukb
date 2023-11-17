@@ -6,23 +6,27 @@ title: "Association with biomarkers and renal function"
 source('0.0.- Setup.R')
 ```
 
-```{r}
+## Standard Covariates
+
+```{r read_covars}
 ukb_gwas_covars <- read_csv(
-  file.path(root_fd, 'data/pheno/ukb_gwas_covars.csv'),
+  file.path(root_fd, 'data', 'pheno', 'ukb_gwas_covars.csv'),
   col_types = cols())
 ```
 
-## All Blood Biochemistry markers using Sinnot-Amstrong covariates
+## Variables for Biomarker Analysis
 
-```{r}
+### Blood Biomarkers
+
+```{r read_blood_biomarker_ids}
 ukb_all_biochem_ids <- read_csv(
-  file.path(root_fd, 'data/releases/ukb_ids_biochem_all.csv'),
+  file.path(root_fd, 'data', 'releases', 'ukb_ids_biochem_all.csv'),
   col_types = cols())
 ```
 
-```{r}
+```{r read_blood_biomarkers}
 ukb_all_biochem <- read_csv(
-  pfile.path(root_fd, 'data/pheno/ukb_biochem_all.csv'),
+  file.path(root_fd, 'data', 'pheno', 'ukb_biochem_all.csv'),
   col_types = cols()) |> 
   group_by(eid) |>
   pivot_longer(-eid, names_to = 'id', values_to = 'val') |>
@@ -37,7 +41,7 @@ ukb_all_biochem <- read_csv(
 
 ### Blood extraction date
 
-```{r}
+```{r read_blood_extraction_dates}
 ukb_blood_extr <- read_csv(
   file.path(root_fd, 'data', 'releases', 'pheno_9.csv'),
          col_types = cols()) |>
@@ -48,7 +52,7 @@ ukb_blood_extr <- read_csv(
   select(-year)
 ```
 
-```{r}
+```{r construct_blood_extraction_covars}
 ukb_blood_extr_cov <- ukb_blood_extr |> 
   mutate(time_hour = as.numeric(lubridate::hour(Extraction)),
          time_min = as.numeric(lubridate::minute(Extraction)),
@@ -63,17 +67,17 @@ ukb_blood_extr_cov <- ukb_blood_extr |>
   select(-Extraction)
 ```
 
-### Biochemistry marker assay date
+### Assay date
 
-```{r}
+```{r read_biomarker_processing_field_ids}
 ukb_biochem_proc_ids <- read_csv(
-  file.path(root_fd, 'data/releases/ukb_ids_biochem_proc.csv'),
+  file.path(root_fd, 'data', 'releases', 'ukb_ids_biochem_proc.csv'),
   col_types = cols())
 ```
 
-```{r}
+```{r read_biomarker_processing}
 ukb_biochem_proc <- read_csv(
-  file.path(root_fd, 'data/pheno/ukb_biochem_proc.csv'),
+  file.path(root_fd, 'data', 'pheno', 'ukb_biochem_proc.csv'),
   col_types = cols()) |>
   rename_with(~ gsub("-0.0", "", .x, fixed = TRUE)) |>
   rename_with(~ ukb_biochem_proc_ids |>
@@ -81,7 +85,7 @@ ukb_biochem_proc <- read_csv(
                 pull(title), -eid)
 ```
 
-```{r}
+```{r construct_biomarker_processing_covars}
 ukb_biochem_proc_cov <- ukb_biochem_proc |>
   select(eid, ends_with('assay date'), contains('dilution')) |>
   mutate(across(where(lubridate::is.Date),
@@ -90,29 +94,48 @@ ukb_biochem_proc_cov <- ukb_biochem_proc |>
 
 ### Fasting time
 
-```{r}
+```{r read_fasting_time}
 ukb_fasting <- read_csv(
-  file.path(root_fd, 'data/releases/pheno_11.csv'),
+  file.path(root_fd, 'data', 'releases', 'pheno_11.csv'),
   col_types = cols()) |>
   select(eid, `Fasting Time` = `74-0.0`)
 ```
 
-### Covariates
+### Statins
 
-```{r}
+```{r read_statin_med_codes}
+ukb_statin_codes <- read_tsv(
+  file.path(root_fd, 'data', 'pheno', 'var_4_enc.tsv'),
+  col_types = cols()) |>
+  filter(meaning %in% c(
+    'simvastatin', 'fluvastatin', 'pravastatin',
+    'atorvastatin', 'rosuvastatin', 'lipid-lowering drug',
+    'lipitor 10mg tablet'))
+``` 
+
+```{r read_statin_intake}
+ukb_statin <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_meds.csv'),
+  col_types = cols()) |>
+  select(-med_other) |>
+  pivot_longer(-eid, names_to = 'med', values_to = 'id') |>
+  filter(!is.na(id)) |>
+  inner_join(ukb_statin_codes, by = c('id' = 'coding')) |>
+  select(eid) |>
+  distinct() |>
+  pull(eid)
+```
+
+### Construct Blood Biomarker covariates
+
+```{r extract_blood_biomarker_names}
 ukb_all_biochem_names <- ukb_all_biochem |> select(-eid) |> colnames()
 ```
 
-```{r}
-ukb_smokers <- read_csv(
-    file.path(root_fd, 'data', 'pheno', 'ukb_smokers.csv'),
-    col_types = cols())
-```
-
-```{r}
+```{r construct_blood_biomarker_covars_function}
 construct_biochem_covars <- function(x, blood = 'Yes', statin = F, 
-                                     scaling = T, retain_eid = F, 
-                                     smoking = F, crp = F) {
+                                     scaling = T, retain_eid = F,
+                                     crp = F, seq_centre = '') {
   
   if(blood == 'Yes') {
     aux <- ukb_gwas_covars |>
@@ -122,8 +145,11 @@ construct_biochem_covars <- function(x, blood = 'Yes', statin = F,
                      select(-Height, -starts_with('Blood'))
   }
   
-  if (smoking) 
-    aux <- aux |> inner_join(ukb_smokers, by = 'eid')
+  if(seq_centre != '') {
+    aux <- aux |>
+      filter(`Seq Centre` == seq_centre) |>
+      select(-`Seq Centre`)
+  }
   
   if (crp) 
     aux <- aux |> inner_join(
@@ -159,121 +185,21 @@ construct_biochem_covars <- function(x, blood = 'Yes', statin = F,
 }
 ```
 
-### Association
+### Urine
 
-```{r}
-ukb_sel_biochem_sa_sig <- bind_rows(
-    lapply(
-      X = c('Yes', 'No'),
-      FUN = function(y) {
-        lapply(
-          X = ukb_all_biochem_names,
-          FUN = function(x) {
-            broom::tidy(
-              lm(as.formula(paste0('`', x, '` ~ .')),
-                 construct_biochem_covars(x, blood = y)), 
-              conf.int = TRUE) |>
-              mutate(lpval = -log10(p.value),
-                     scoeff = sign(estimate)) |>
-              filter(grepl('CN', term)) |>
-              mutate(marker = x, `Blood PCs` = y)
-    }) } ))
-```
-
-```{r}
-ukb_sel_biochem_sa_sig_p <- ukb_sel_biochem_sa_sig |>
-  ggplot(aes(y = fct_rev(marker), x = estimate, 
-             xmin = conf.low, xmax = conf.high,
-             shape = `Blood PCs`)) +
-  geom_vline(xintercept = 0, linewidth = 0.5, colour = 'grey80') +
-  geom_pointrange(aes(fill = `Blood PCs`),
-                  colour = 'grey30', size = 1,
-                linewidth = 0.75, alpha = 0.8,
-                position = position_dodge2(width = 0.75)) +
-  scale_x_continuous(limits = c(-0.03, 0.03),
-                     breaks = c(-0.03, -0, 0.03)) +
-  scale_fill_manual('Blood PCs', 
-                    values = c('No' = 'coral3',
-                               'Yes' = 'palegreen4')) +
-  scale_shape_manual('Blood PCs', 
-                    values = c('No' = 21,
-                               'Yes' = 23)) +
-  labs(y = '', x = "Std. Beta; 95% CI") +
-  theme_pub() +
-  theme(legend.position = 'bottom',
-        strip.text = element_text(size = 12),
-        axis.text = element_text(size = 12),
-        axis.title = element_text(size = 14),
-        axis.text.y = element_text(size = 12)) 
-```
-
-```{r}
-ggsave(ukb_sel_biochem_sa_sig_p, 
-       filename = '../figures_supp/biochem_sa.png', height = 8, width = 8)
-```
-
-### Statins
-
-```{r}
-ukb_statin_codes <- read_tsv(
-  file.path(root_fd, 'data/pheno/var_4_enc.tsv'),
-  col_types = cols()) |>
-  filter(meaning %in% c(
-    'simvastatin', 'fluvastatin', 'pravastatin',
-    'atorvastatin', 'rosuvastatin', 'lipid-lowering drug',
-    'lipitor 10mg tablet'))
-``` 
-
-```{r}
-ukb_statin <- read_csv(
-  file.path(root_fd, 'data/pheno/ukb_meds.csv'),
-  col_types = cols()) |>
-  select(-med_other) |>
-  pivot_longer(-eid, names_to = 'med', values_to = 'id') |>
-  filter(!is.na(id)) |>
-  inner_join(ukb_statin_codes, by = c('id' = 'coding')) |>
-  select(eid) |>
-  distinct() |>
-  pull(eid)
-```
-
-```{r}
-ukb_sel_biochem_sa_no_statin_sig <- bind_rows(
-    lapply(
-      X = c('Yes', 'No'),
-      FUN = function(y) {
-        lapply(
-          X = ukb_all_biochem_names,
-          FUN = function(x) {
-            broom::tidy(
-              lm(as.formula(paste0('`', x, '` ~ .')),
-                 construct_biochem_covars(x, blood = y, statin = T)), 
-              conf.int = TRUE) |>
-              mutate(lpval = -log10(p.value),
-                     scoeff = sign(estimate)) |>
-              filter(grepl('CN', term)) |>
-              mutate(marker = x, `Blood PCs` = y)
-    }) } ))
-```
-
-
-## Urine
-
-```{r}
+```{r read_urine_biomarker_ids}
 ukb_urine_ids <- read_csv(
-  file.path(root_fd, 'data/releases/ukb_ids_urine.csv'),
+  file.path(root_fd, 'data', 'releases', 'ukb_ids_urine.csv'),
   col_types = cols())
-```
 
-```{r}
 ukb_urine_bm_ids <- ukb_urine_ids |>
   filter(category == 'Urine assays',
          ! grepl('result flag', title))
 ```
 
-```{r}
+```{r read_urine_biomarkers}
 ukb_urine <- read_csv(
-  file.path(root_fd, 'data/pheno/ukb_urine.csv'),
+  file.path(root_fd, 'data', 'pheno', 'ukb_urine.csv'),
   col_types = cols()) |> 
   group_by(eid) |>
   mutate_at(vars(-group_cols()), as.character) |>
@@ -290,7 +216,7 @@ ukb_urine <- read_csv(
 
 ### Urine extraction date
 
-```{r}
+```{r read_urine_extraction_dates}
 ukb_urine_extr <- read_csv(
   file.path(root_fd, 'data', 'releases', 'pheno_12.csv'),
          col_types = cols()) |>
@@ -301,7 +227,7 @@ ukb_urine_extr <- read_csv(
   select(-year)
 ```
 
-```{r}
+```{r construct_urine_extraction_covars}
 ukb_urine_extr_cov <- ukb_blood_extr |> 
   mutate(time_hour = as.numeric(lubridate::hour(Extraction)),
          time_min = as.numeric(lubridate::minute(Extraction)),
@@ -316,16 +242,16 @@ ukb_urine_extr_cov <- ukb_blood_extr |>
   select(-Extraction)
 ```
 
-### Biochemistry marker assay date
+### Urine acquisition time
 
-```{r}
+```{r read_urine_processing_ids}
 ukb_urine_proc_ids <- ukb_urine_ids |>
   filter(category == 'Urine processing')
 ```
 
-```{r}
+```{r read_urine_processing}
 ukb_urine_proc <- read_csv(
-  file.path(root_fd, 'data/pheno/ukb_urine.csv'),
+  file.path(root_fd, 'data', 'pheno', 'ukb_urine.csv'),
   col_types = cols()) |>
   select(1, 10:17) |>
   rename_with(~ gsub("-0.0", "", .x, fixed = TRUE)) |>
@@ -334,24 +260,30 @@ ukb_urine_proc <- read_csv(
                 pull(title), -eid)
 ```
 
-```{r}
+```{r construct_urine_processing_covars}
 ukb_urine_proc_cov <- ukb_urine_proc |>
   select(eid, ends_with('acquisition time')) |>
   mutate(across(where(lubridate::is.Date),
                 ~ as.numeric(.x - min(.x, na.rm = TRUE))))
 ```
 
-### Covariates
+### Construct Urine covariates
 
-```{r}
+```{r find_urine_names}
 ukb_urine_names <- ukb_urine |> select(-eid) |> colnames()
 ```
 
-```{r}
-construct_urine_covars <- function(x, statin = F) {
+```{r construct_urine_biomarker_covars_function}
+construct_urine_covars <- function(x, statin = F, seq_centre = '') {
   
   aux <- ukb_gwas_covars |>
     select(-Height, -starts_with('Blood'))
+  
+  if(seq_centre != '') {
+    aux <- aux |>
+      filter(`Seq Centre` == seq_centre) |>
+      select(-`Seq Centre`)
+  }
   
   if (statin) {
     aux2 <- ukb_urine |> filter(! eid %in% ukb_statin)
@@ -374,80 +306,33 @@ construct_urine_covars <- function(x, statin = F) {
 }
 ```
 
-### Association
+## A.- Blood and Urine Biomarker Associations, excluding statin intake
 
-```{r}
-ukb_urine_sa_sig <- bind_rows(
+### Blood
+
+```{r fit_blood_biomarker_excl_statin_intake}
+ukb_blood_biomarker_no_statin_sig <- bind_rows(
+    lapply(
+      X = c('Yes', 'No'),
+      FUN = function(y) {
         lapply(
-          X = ukb_urine_names,
+          X = ukb_all_biochem_names,
           FUN = function(x) {
             broom::tidy(
               lm(as.formula(paste0('`', x, '` ~ .')),
-                 construct_urine_covars(x)), 
+                 construct_biochem_covars(x, blood = y, statin = T)), 
               conf.int = TRUE) |>
               mutate(lpval = -log10(p.value),
                      scoeff = sign(estimate)) |>
               filter(grepl('CN', term)) |>
-              mutate(marker = x)
-    }))
+              mutate(marker = x, `Blood PCs` = y)
+    }) } ))
 ```
 
-```{r}
-ukb_biomarkers_sa_sig_p <- bind_rows(
-  ukb_sel_biochem_sa_sig |> 
-    mutate(type = if_else(`Blood PCs` == 'Yes',
-                          'Blood Biomarker, with Blood PCs cov.',
-                          'Blood Biomarker, w/o Blood PCs cov.'),
-           tissue = 'Blood'),
-  ukb_urine_sa_sig |> 
-    mutate(
-      type = 'Urine Biomarker',
-      tissue = 'Urine')) |>
-  mutate(type = fct_rev(type)) |>
-  ggplot(aes(y = fct_rev(marker), x = estimate, 
-             xmin = conf.low, xmax = conf.high,
-             shape = type)) +
-  geom_vline(xintercept = 0, linewidth = 0.5, colour = 'grey80') +
-  geom_pointrange(aes(fill = type),
-                  colour = 'grey30', size = 1,
-                linewidth = 0.75, alpha = 0.8,
-                position = position_dodge2(width = 0.75)) +
-  facet_grid(rows = vars(tissue), scales = 'free', space = 'free') +
-  scale_x_continuous(limits = c(-0.03, 0.03),
-                     breaks = c(-0.03, -0, 0.03)) +
-  scale_fill_manual('', 
-                    values = c(
-                      'Blood Biomarker, w/o Blood PCs cov.' = 'coral4',
-                      'Blood Biomarker, with Blood PCs cov.' = 'mistyrose2',
-                      'Urine Biomarker' = 'goldenrod3')) +
-  scale_shape_manual('',
-                     values = c(
-                       'Blood Biomarker, w/o Blood PCs cov.' = 21,
-                      'Blood Biomarker, with Blood PCs cov.' = 23,
-                      'Urine Biomarker' = 22)) +
-  labs(y = '', x = "Standardised Beta; 95% CI") +
-  theme_pub() +
-  theme(legend.position = 'bottom',
-        legend.text = element_text(size = 11),
-        strip.text = element_blank(),
-        axis.text = element_text(size = 12),
-        axis.title = element_text(size = 14),
-        axis.text.y = element_text(size = 12))  +
-  theme(legend.position = c(0.25, -0.075),
-        legend.direction = 'horizontal',
-        plot.margin = grid::unit(c(0.1,0.1,3,0.1), 'lines'))
-```
+### Urine
 
-```{r}
-ggsave(ukb_biomarkers_sa_sig_p, 
-       filename = '../figures_supp/S11.- Biomarkers, including Statin.png',
-       height = 12, width = 9)
-```
-
-### Statins
-
-```{r}
-ukb_urine_sa_no_statin_sig <- bind_rows(
+```{r fit_urine_biomarker_excl_statin_intake}
+ukb_urine_biomarker_no_statin_sig <- bind_rows(
         lapply(
           X = ukb_urine_names,
           FUN = function(x) {
@@ -462,19 +347,24 @@ ukb_urine_sa_no_statin_sig <- bind_rows(
     }))
 ```
 
+### Joint
 
-```{r}
-ukb_biomarkers_sa_no_statin_sig_p <- bind_rows(
-  ukb_sel_biochem_sa_no_statin_sig |> 
+```{r join_biomarker_associations_excl_statin_intake}
+ukb_biomarkers_no_statin_sig <- bind_rows(
+  ukb_blood_biomarker_no_statin_sig |> 
     mutate(type = if_else(`Blood PCs` == 'Yes',
                           'Blood Biomarker, with Blood PCs cov.',
                           'Blood Biomarker, w/o Blood PCs cov.'),
            tissue = 'Blood'),
-  ukb_urine_sa_no_statin_sig |> 
+  ukb_urine_biomarker_no_statin_sig |> 
     mutate(
       type = 'Urine Biomarker',
       tissue = 'Urine')) |>
-  mutate(type = fct_rev(type)) |>
+  mutate(type = fct_rev(type))
+```
+
+```{r plot_biomarker_excl_statin_betas}
+ukb_biomarkers_no_statin_betas_p <- ukb_biomarkers_no_statin_sig |>
   ggplot(aes(y = fct_rev(marker), x = estimate, 
              xmin = conf.low, xmax = conf.high,
              shape = type)) +
@@ -509,19 +399,616 @@ ukb_biomarkers_sa_no_statin_sig_p <- bind_rows(
         plot.margin = grid::unit(c(0.1,0.1,3,0.1), 'lines'))
 ```
 
-```{r}
-ggsave(ukb_biomarkers_sa_no_statin_sig_p, 
-       filename = '../figures/4A.- Biomarkers, No Statin Intake.png',
-       height = 12, width = 7.5)
+```{r save_biomarker_excl_statin_betas_plot}
+ggsave(ukb_biomarkers_no_statin_betas_p, 
+       filename = '../figures/4.A.- Biomarkers Betas, no Statin.png',
+       height = 12, width = 8)
 ```
 
-## eGFR
+```{r plot_biomarker_excl_statin_sig}
+ukb_biomarkers_no_statin_sig_p <- ukb_biomarkers_no_statin_sig |>
+  ggplot(aes(y = fct_rev(marker), x = lpval, group = type)) +
+  geom_vline(xintercept = -log10(0.05), linewidth = 0.5, colour = 'grey80',
+             linetype = 'dashed') +
+  geom_col(aes(fill = type), colour = 'grey30', 
+                linewidth = 0.75, alpha = 0.8,
+                position = position_dodge2(width = 0.5)) +
+  facet_grid(rows = vars(tissue), scales = 'free', space = 'free') +
+  scale_x_continuous(limits = c(0, 12.5),
+                     breaks = c(0, 5, 10)) +
+  scale_fill_manual('', 
+                    values = c(
+                      'Blood Biomarker, w/o Blood PCs cov.' = 'coral4',
+                      'Blood Biomarker, with Blood PCs cov.' = 'mistyrose2',
+                      'Urine Biomarker' = 'goldenrod3')) +
+  labs(y = '', x = bquote(bold(-log[10](p-value)))) +
+  theme_pub() +
+  theme(legend.position = 'bottom',
+        legend.text = element_text(size = 11),
+        strip.text = element_blank(),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        axis.text.y = element_text(size = 12))  +
+  theme(legend.position = c(0.25, -0.075),
+        legend.direction = 'horizontal',
+        plot.margin = grid::unit(c(0.1,0.1,3,0.1), 'lines'))
+```
 
-### GFR from creatinine
+```{r save_biomarker_excl_statin_plots}
+ggsave(
+  plot = (ukb_biomarkers_no_statin_betas_p | (
+    ukb_biomarkers_no_statin_sig_p +
+      theme(axis.text.y = element_blank(),
+            axis.title.y = element_blank(),
+            axis.ticks.y = element_blank()))
+    ) +
+  plot_layout(widths = c(0.6, 0.4)),
+  filename = file.path('..', 'figures', '4.A.- Biomarkers, no Statin.png'), 
+  height = 11, width = 8)
+```
 
-#### All range
+## S13.- Blood and Urine Biomarker Associations, including statin intake
 
-```{r}
+### Blood
+
+```{r fit_blood_biomarker_incl_statin_intake}
+ukb_blood_biomarker_sig <- bind_rows(
+    lapply(
+      X = c('Yes', 'No'),
+      FUN = function(y) {
+        lapply(
+          X = ukb_all_biochem_names,
+          FUN = function(x) {
+            broom::tidy(
+              lm(as.formula(paste0('`', x, '` ~ .')),
+                 construct_biochem_covars(x, blood = y)), 
+              conf.int = TRUE) |>
+              mutate(lpval = -log10(p.value),
+                     scoeff = sign(estimate)) |>
+              filter(grepl('CN', term)) |>
+              mutate(marker = x, `Blood PCs` = y)
+    }) } ))
+```
+
+### Urine
+
+```{r fit_urine_biomarker_incl_statin_intake}
+ukb_urine_biomarker_sig <- bind_rows(
+        lapply(
+          X = ukb_urine_names,
+          FUN = function(x) {
+            broom::tidy(
+              lm(as.formula(paste0('`', x, '` ~ .')),
+                 construct_urine_covars(x)), 
+              conf.int = TRUE) |>
+              mutate(lpval = -log10(p.value),
+                     scoeff = sign(estimate)) |>
+              filter(grepl('CN', term)) |>
+              mutate(marker = x)
+    }))
+```
+
+### Joint
+
+```{r join_biomarker_associations_incl_statin_intake}
+ukb_biomarkers_sig <- bind_rows(
+  ukb_blood_biomarker_sig |> 
+    mutate(type = if_else(`Blood PCs` == 'Yes',
+                          'Blood Biomarker, with Blood PCs cov.',
+                          'Blood Biomarker, w/o Blood PCs cov.'),
+           tissue = 'Blood'),
+  ukb_urine_biomarker_sig |> 
+    mutate(
+      type = 'Urine Biomarker',
+      tissue = 'Urine')) |>
+  mutate(type = fct_rev(type))
+```
+
+```{r plot_biomarker_incl_statin_betas}
+ukb_biomarkers_betas_p <- ukb_biomarkers_sig |>
+  ggplot(aes(y = fct_rev(marker), x = estimate, 
+             xmin = conf.low, xmax = conf.high,
+             shape = type)) +
+  geom_vline(xintercept = 0, linewidth = 0.5, colour = 'grey80') +
+  geom_pointrange(aes(fill = type),
+                  colour = 'grey30', size = 1,
+                linewidth = 0.75, alpha = 0.8,
+                position = position_dodge2(width = 0.75)) +
+  facet_grid(rows = vars(tissue), scales = 'free', space = 'free') +
+  scale_x_continuous(limits = c(-0.03, 0.03),
+                     breaks = c(-0.03, -0, 0.03)) +
+  scale_fill_manual('', 
+                    values = c(
+                      'Blood Biomarker, w/o Blood PCs cov.' = 'coral4',
+                      'Blood Biomarker, with Blood PCs cov.' = 'mistyrose2',
+                      'Urine Biomarker' = 'goldenrod3')) +
+  scale_shape_manual('',
+                     values = c(
+                       'Blood Biomarker, w/o Blood PCs cov.' = 21,
+                      'Blood Biomarker, with Blood PCs cov.' = 23,
+                      'Urine Biomarker' = 22)) +
+  labs(y = '', x = "Standardised Beta; 95% CI") +
+  theme_pub() +
+  theme(legend.position = 'bottom',
+        legend.text = element_text(size = 11),
+        strip.text = element_blank(),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        axis.text.y = element_text(size = 12))  +
+  theme(legend.position = c(0.25, -0.075),
+        legend.direction = 'horizontal',
+        plot.margin = grid::unit(c(0.1,0.1,3,0.1), 'lines'))
+```
+
+```{r save_biomarker_incl_statin_betas_plot}
+ggsave(ukb_biomarkers_betas_p, 
+       filename = file.path(
+         '..', 'figures_supp', 
+         'S13.- Biomarkers Betas, including Statin.png'),
+       height = 12, width = 10)
+```
+
+```{r plot_biomarker_incl_statin_sig}
+ukb_biomarkers_sig_p <- ukb_biomarkers_sig |>
+  ggplot(aes(y = fct_rev(marker), x = lpval, group = type)) +
+  geom_vline(xintercept = -log10(0.05), linewidth = 0.5, colour = 'grey80',
+             linetype = 'dashed') +
+  geom_col(aes(fill = type), colour = 'grey30', 
+                linewidth = 0.75, alpha = 0.8,
+                position = position_dodge2(width = 0.5)) +
+  facet_grid(rows = vars(tissue), scales = 'free', space = 'free') +
+  scale_fill_manual('', 
+                    values = c(
+                      'Blood Biomarker, w/o Blood PCs cov.' = 'coral4',
+                      'Blood Biomarker, with Blood PCs cov.' = 'mistyrose2',
+                      'Urine Biomarker' = 'goldenrod3')) +
+  labs(y = '', x = bquote(bold(-log[10](p-value)))) +
+  theme_pub() +
+  theme(legend.position = 'bottom',
+        legend.text = element_text(size = 11),
+        strip.text = element_blank(),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        axis.text.y = element_text(size = 12))  +
+  theme(legend.position = c(0.25, -0.075),
+        legend.direction = 'horizontal',
+        plot.margin = grid::unit(c(0.1,0.1,3,0.1), 'lines'))
+```
+
+```{r save_biomarker_incl_statin_plots}
+ggsave(
+  plot = (ukb_biomarkers_betas_p | (
+    ukb_biomarkers_sig_p +
+      theme(axis.text.y = element_blank(),
+            axis.title.y = element_blank(),
+            axis.ticks.y = element_blank()))
+    ) +
+  plot_layout(widths = c(0.6, 0.4)),
+  filename = file.path('..', 'figures_supp', 
+                       'S13.- Biomarkers, including Statin.png'), 
+  height = 12, width = 10)
+```
+
+## S14i.- Blood and Urine Biomarker Associations, Sanger
+
+### Blood
+
+```{r fit_blood_biomarker_sanger}
+ukb_blood_biomarker_sanger_sig <- bind_rows(
+    lapply(
+      X = c('Yes', 'No'),
+      FUN = function(y) {
+        lapply(
+          X = ukb_all_biochem_names,
+          FUN = function(x) {
+            broom::tidy(
+              lm(as.formula(paste0('`', x, '` ~ .')),
+                 construct_biochem_covars(x, blood = y, statin = T, 
+                                          seq_centre = 'Sanger')), 
+              conf.int = TRUE) |>
+              mutate(lpval = -log10(p.value),
+                     scoeff = sign(estimate)) |>
+              filter(grepl('CN', term)) |>
+              mutate(marker = x, `Blood PCs` = y)
+    }) } ))
+```
+
+### Urine
+
+```{r fit_urine_biomarker_sanger}
+ukb_urine_biomarker_sanger_sig <- bind_rows(
+        lapply(
+          X = ukb_urine_names,
+          FUN = function(x) {
+            broom::tidy(
+              lm(as.formula(paste0('`', x, '` ~ .')),
+                 construct_urine_covars(x, statin = T,
+                                        seq_centre = 'Sanger')), 
+              conf.int = TRUE) |>
+              mutate(lpval = -log10(p.value),
+                     scoeff = sign(estimate)) |>
+              filter(grepl('CN', term)) |>
+              mutate(marker = x)
+    }))
+```
+
+### Joint
+
+```{r join_biomarker_associations_sanger}
+ukb_biomarkers_sanger_sig <- bind_rows(
+  ukb_blood_biomarker_sanger_sig |> 
+    mutate(type = if_else(`Blood PCs` == 'Yes',
+                          'Blood Biomarker, with Blood PCs cov.',
+                          'Blood Biomarker, w/o Blood PCs cov.'),
+           tissue = 'Blood'),
+  ukb_urine_biomarker_sanger_sig |> 
+    mutate(
+      type = 'Urine Biomarker',
+      tissue = 'Urine')) |>
+  mutate(type = fct_rev(type))
+```
+
+```{r plot_biomarker_sanger_betas}
+ukb_biomarkers_sanger_betas_p <- ukb_biomarkers_sanger_sig |>
+  ggplot(aes(y = fct_rev(marker), x = estimate, 
+             xmin = conf.low, xmax = conf.high,
+             shape = type)) +
+  geom_vline(xintercept = 0, linewidth = 0.5, colour = 'grey80') +
+  geom_pointrange(aes(fill = type),
+                  colour = 'grey30', size = 1,
+                linewidth = 0.75, alpha = 0.8,
+                position = position_dodge2(width = 0.75)) +
+  facet_grid(rows = vars(tissue), scales = 'free', space = 'free') +
+  scale_x_continuous(limits = c(-0.037, 0.037),
+                     breaks = c(-0.03, -0, 0.03)) +
+  scale_fill_manual('', 
+                    values = c(
+                      'Blood Biomarker, w/o Blood PCs cov.' = 'coral4',
+                      'Blood Biomarker, with Blood PCs cov.' = 'mistyrose2',
+                      'Urine Biomarker' = 'goldenrod3')) +
+  scale_shape_manual('',
+                     values = c(
+                       'Blood Biomarker, w/o Blood PCs cov.' = 21,
+                      'Blood Biomarker, with Blood PCs cov.' = 23,
+                      'Urine Biomarker' = 22)) +
+  labs(y = '', x = "Standardised Beta; 95% CI") +
+  theme_pub() +
+  theme(legend.position = 'bottom',
+        legend.text = element_text(size = 11),
+        strip.text = element_blank(),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        axis.text.y = element_text(size = 12))  +
+  theme(legend.position = 'none')
+```
+
+```{r plot_biomarker_sanger_sig}
+ukb_biomarkers_sanger_sig_p <- ukb_biomarkers_sanger_sig |>
+  ggplot(aes(y = fct_rev(marker), x = lpval, group = type)) +
+  geom_vline(xintercept = -log10(0.05), linewidth = 0.5, colour = 'grey80',
+             linetype = 'dashed') +
+  geom_col(aes(fill = type), colour = 'grey30', 
+                linewidth = 0.75, alpha = 0.8,
+                position = position_dodge2(width = 0.5)) +
+  facet_grid(rows = vars(tissue), scales = 'free', space = 'free') +
+  scale_x_continuous(limits = c(0, 7),
+                     breaks = c(0, 3, 6)) +
+  scale_fill_manual('', 
+                    values = c(
+                      'Blood Biomarker, w/o Blood PCs cov.' = 'coral4',
+                      'Blood Biomarker, with Blood PCs cov.' = 'mistyrose2',
+                      'Urine Biomarker' = 'goldenrod3')) +
+  labs(y = '', x = bquote(bold(-log[10](p-value)))) +
+  theme_pub() +
+  theme(legend.position = 'bottom',
+        legend.text = element_text(size = 11),
+        strip.text = element_blank(),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        axis.text.y = element_text(size = 12))  +
+  theme(legend.position = 'none')
+```
+
+```{r save_biomarker_sanger_plots}
+ggsave(
+  plot = (ukb_biomarkers_sanger_betas_p  | (
+    ukb_biomarkers_sanger_sig_p +
+      theme(axis.text.y = element_blank(),
+            axis.title.y = element_blank(),
+            axis.ticks.y = element_blank()))
+    ) +
+  plot_annotation(title = '(i) Sanger') +
+  plot_layout(widths = c(0.6, 0.4)),
+  filename = file.path('..', 'figures_supp', 
+                       'S14i.- Biomarkers, no Statin, Sanger.png'), 
+  height = 11, width = 7)
+```
+
+## S14ii.- Blood and Urine Biomarker Associations, deCODE
+
+### Blood
+
+```{r fit_blood_biomarker_decode}
+ukb_blood_biomarker_decode_sig <- bind_rows(
+    lapply(
+      X = c('Yes', 'No'),
+      FUN = function(y) {
+        lapply(
+          X = ukb_all_biochem_names,
+          FUN = function(x) {
+            broom::tidy(
+              lm(as.formula(paste0('`', x, '` ~ .')),
+                 construct_biochem_covars(x, blood = y, statin = T, 
+                                          seq_centre = 'deCODE')), 
+              conf.int = TRUE) |>
+              mutate(lpval = -log10(p.value),
+                     scoeff = sign(estimate)) |>
+              filter(grepl('CN', term)) |>
+              mutate(marker = x, `Blood PCs` = y)
+    }) } ))
+```
+
+### Urine
+
+```{r fit_urine_biomarker_decode_intake}
+ukb_urine_biomarker_decode_sig <- bind_rows(
+        lapply(
+          X = ukb_urine_names,
+          FUN = function(x) {
+            broom::tidy(
+              lm(as.formula(paste0('`', x, '` ~ .')),
+                 construct_urine_covars(x, statin = T,
+                                        seq_centre = 'deCODE')), 
+              conf.int = TRUE) |>
+              mutate(lpval = -log10(p.value),
+                     scoeff = sign(estimate)) |>
+              filter(grepl('CN', term)) |>
+              mutate(marker = x)
+    }))
+```
+
+### Joint
+
+```{r join_biomarker_associations_decode}
+ukb_biomarkers_decode_sig <- bind_rows(
+  ukb_blood_biomarker_decode_sig |> 
+    mutate(type = if_else(`Blood PCs` == 'Yes',
+                          'Blood Biomarker, with Blood PCs cov.',
+                          'Blood Biomarker, w/o Blood PCs cov.'),
+           tissue = 'Blood'),
+  ukb_urine_biomarker_decode_sig |> 
+    mutate(
+      type = 'Urine Biomarker',
+      tissue = 'Urine')) |>
+  mutate(type = fct_rev(type))
+```
+
+```{r plot_biomarker_decode_betas}
+ukb_biomarkers_decode_betas_p <- ukb_biomarkers_decode_sig |>
+  ggplot(aes(y = fct_rev(marker), x = estimate, 
+             xmin = conf.low, xmax = conf.high,
+             shape = type)) +
+  geom_vline(xintercept = 0, linewidth = 0.5, colour = 'grey80') +
+  geom_pointrange(aes(fill = type),
+                  colour = 'grey30', size = 1,
+                linewidth = 0.75, alpha = 0.8,
+                position = position_dodge2(width = 0.75)) +
+  facet_grid(rows = vars(tissue), scales = 'free', space = 'free') +
+  scale_x_continuous(limits = c(-0.037, 0.037),
+                     breaks = c(-0.03, -0, 0.03)) +
+  scale_fill_manual('', 
+                    values = c(
+                      'Blood Biomarker, w/o Blood PCs cov.' = 'coral4',
+                      'Blood Biomarker, with Blood PCs cov.' = 'mistyrose2',
+                      'Urine Biomarker' = 'goldenrod3')) +
+  scale_shape_manual('',
+                     values = c(
+                       'Blood Biomarker, w/o Blood PCs cov.' = 21,
+                      'Blood Biomarker, with Blood PCs cov.' = 23,
+                      'Urine Biomarker' = 22)) +
+  labs(y = '', x = "Standardised Beta; 95% CI") +
+  theme_pub() +
+  theme(legend.position = 'bottom',
+        legend.text = element_text(size = 11),
+        strip.text = element_blank(),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        axis.text.y = element_text(size = 12))  +
+  theme(legend.position = 'none')
+```
+
+```{r plot_biomarker_decode_sig}
+ukb_biomarkers_decode_sig_p <- ukb_biomarkers_decode_sig |>
+  ggplot(aes(y = fct_rev(marker), x = lpval, group = type)) +
+  geom_vline(xintercept = -log10(0.05), linewidth = 0.5, colour = 'grey80',
+             linetype = 'dashed') +
+  geom_col(aes(fill = type), colour = 'grey30', 
+                linewidth = 0.75, alpha = 0.8,
+                position = position_dodge2(width = 0.5)) +
+  facet_grid(rows = vars(tissue), scales = 'free', space = 'free') +
+  scale_x_continuous(limits = c(0, 7),
+                     breaks = c(0, 3, 6)) +
+  scale_fill_manual('', 
+                    values = c(
+                      'Blood Biomarker, w/o Blood PCs cov.' = 'coral4',
+                      'Blood Biomarker, with Blood PCs cov.' = 'mistyrose2',
+                      'Urine Biomarker' = 'goldenrod3')) +
+  labs(y = '', x = bquote(bold(-log[10](p-value)))) +
+  theme_pub() +
+  theme(legend.position = 'bottom',
+        legend.text = element_text(size = 11),
+        strip.text = element_blank(),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        axis.text.y = element_text(size = 12))  +
+  theme(legend.position = 'none')
+```
+
+```{r save_biomarker_decode_plots}
+ggsave(
+  plot = (ukb_biomarkers_decode_betas_p | (
+    ukb_biomarkers_decode_sig_p +
+      theme(axis.text.y = element_blank(),
+            axis.title.y = element_blank(),
+            axis.ticks.y = element_blank()))) +
+  plot_annotation(title = '(ii) deCODE') +
+  plot_layout(widths = c(0.6, 0.4)),
+  filename = file.path('..', 'figures_supp', 
+                       'S14ii.- Biomarkers, no Statin, deCODE.png'), 
+  height = 11, width = 7)
+```
+
+
+## S15A.- Multivariate Analysis of Renal Blood Biomarkers 
+
+```{r define_renal_biomarkers}
+renal_biom <- c('Cystatin C', 'Creatinine', 'Urea', 'Urate', 
+                'Phosphate', 'Total protein')
+```
+
+### No CRP as covariate
+
+```{r construct_renal_biomarkers_covars}
+ukb_renal_biom_cov <- construct_biochem_covars('Cystatin C', 
+                         blood = 'No', scaling = T) |>
+    bind_cols(lapply(
+      X = renal_biom[-1],
+      FUN = function(x) {
+        construct_biochem_covars(x,  blood = 'No', scaling = T) |>
+                   select(contains(x)) })) |>
+  select(-contains('assay date'))
+```
+
+```{r fit_renal_biomarkers}
+ukb_renal_biom_sig <- broom::tidy(
+  lm(CN ~ . , ukb_renal_biom_cov), 
+  conf.int = TRUE) |>
+  mutate(lpval = -log10(p.value),
+         scoeff = sign(estimate),
+         term = gsub('`', '', term)) |>
+  filter(term %in% renal_biom)
+```
+
+### CRP as covariate
+
+```{r construct_renal_biomarkers_covars_with_crp}
+ukb_renal_biom_crp_cov <- construct_biochem_covars('Cystatin C', 
+                         blood = 'No', scaling = T, crp = T) |>
+    bind_cols(lapply(
+      X = renal_biom[-1],
+      FUN = function(x) {
+        construct_biochem_covars(x,  blood = 'No', 
+                                 scaling = T, crp = T) |>
+                   select(contains(x)) })) |>
+  select(-contains('assay date'))
+```
+
+```{r fit_renal_biomarkers_with_crp}
+ukb_renal_biom_crp_sig <- broom::tidy(
+  lm(CN ~ . , ukb_renal_biom_crp_cov), 
+  conf.int = TRUE) |>
+  mutate(lpval = -log10(p.value),
+         scoeff = sign(estimate),
+         term = gsub('`', '', term)) |>
+  filter(term %in% renal_biom)
+```
+
+### Joint Plot
+
+```{r join_renal_biomarkers_associations}
+ukb_renal_joint_sig <- bind_rows(
+  ukb_renal_biom_crp_sig |>
+    mutate(type = 'Renal Function\nBlood Biomarkers',
+           covariates = 'Yes'),
+  ukb_renal_biom_sig |>
+    mutate(type = 'Renal Function\nBlood Biomarkers',
+           covariates = 'No')) |>
+  mutate(covariates = covariates)
+```
+
+```{r plot_renal_biomarkers_betas}
+ukb_renal_joint_betas_p <- ukb_renal_joint_sig |>
+  ggplot(aes(y = fct_rev(term), x = estimate, 
+             xmin = conf.low, xmax = conf.high,
+             shape = covariates, group = covariates)) +
+  geom_vline(xintercept = 0, linewidth = 0.5, colour = 'grey80') +
+  geom_pointrange(aes(fill = covariates),
+                  colour = 'grey30', size = 1,
+                linewidth = 0.75, alpha = 0.8,
+                position = position_dodge2(width = 0.75)) +
+  facet_grid(rows = vars(type), scales = 'free', space = 'free') +
+  scale_x_continuous(limits = c(-0.03, 0.03),
+                     breaks = c(-0.03, 0, 0.03)) +
+  scale_fill_manual('CRP as cov.',
+                    values = c('No' = 'chocolate4',
+                               'Yes' = 'bisque3')) +
+  scale_shape_manual('CRP as cov.',
+                     values = c(
+                       'No' = 21,
+                       'Yes' = 24)) +
+  labs(y = '', x = "Standardised Beta; 95% CI") +
+  theme_pub() +
+  theme(legend.position = 'bottom',
+        legend.direction = 'horizontal',
+        legend.title = element_text(face = 'bold'),
+        strip.text = element_blank(),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        axis.text.y = element_text(size = 12),
+        plot.margin = grid::unit(c(0.1,0.1,2,0.1), 'lines'))
+```
+
+```{r plot_renal_biomarkers_sig}
+ukb_renal_joint_sig_p <- ukb_renal_joint_sig |>
+  ggplot(aes(y = fct_rev(term), 
+             x = lpval,
+             group = covariates)) +
+  geom_vline(xintercept = -log10(0.05), linewidth = 0.5,
+             colour = 'grey80', linetype = 'dashed') +
+  geom_col(aes(fill = covariates), colour = 'grey30', 
+                linewidth = 0.75, alpha = 0.8,
+                position = position_dodge2(width = 0.5)) +
+  facet_grid(rows = vars(type), scales = 'free', space = 'free') +
+  scale_fill_manual('CRP as cov.',
+                    values = c('No' = 'chocolate4',
+                               'Yes' = 'bisque3')) +
+  scale_shape_manual('CRP as cov.',
+                     values = c(
+                       'No' = 21,
+                       'Yes' = 24)) +
+  labs(y = '', x = bquote(bold(-log[10](p-value)))) +
+  theme_pub() +
+  theme(legend.position = 'bottom',
+        legend.direction = 'horizontal',
+        legend.title = element_text(face = 'bold'),
+        strip.text = element_blank(),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        axis.text.y = element_text(size = 12),
+        plot.margin = grid::unit(c(0.1,0.1,2,0.1), 'lines'))
+```
+
+```{r save_renal_biomarkers_plots}
+ggsave(
+  plot = (ukb_renal_joint_betas_p | (
+    ukb_renal_joint_sig_p +
+      theme(axis.text.y = element_blank(),
+            axis.title.y = element_blank(),
+            axis.ticks.y = element_blank()))
+    ) +
+  plot_layout(widths = c(0.6, 0.4)),
+  filename = file.path('..', 'figures_supp',
+                       'S15A.- Renal Biomarkers, Joint.png'), 
+  height = 5.5, width = 10)
+```
+
+## eGFR associations
+
+### No CRP as covariate
+
+#### eGFR from creatinine
+
+```{r construct_egfr_cr_covars}
 ukb_egfr_cr <- construct_biochem_covars('Creatinine',
                                         blood = 'No', scaling = F) |>
   filter(!is.na(Creatinine)) |>
@@ -538,26 +1025,25 @@ ukb_egfr_cr <- construct_biochem_covars('Creatinine',
   ungroup()
 ```
 
-```{r}
+```{r scale_egfr_cr_covars}
 ukb_egfr_cr_scaled <- ukb_egfr_cr |>
   select(-alpha, -kappa, -gamma, -Creatinine) |>
   mutate(across(where(is.numeric), scale)) 
 ```
 
-```{r}
+```{r fit_egfr_cr}
 ukb_egfr_cr_sig <- broom::tidy(
-  lm(CN ~ . , ukb_egfr_cr_scaled), 
+  lm( eGFRcr ~ . , ukb_egfr_cr_scaled), 
   conf.int = TRUE) |>
   mutate(lpval = -log10(p.value),
          scoeff = sign(estimate)) |>
-  filter(term == 'eGFRcr')
+  filter(term == 'CN') |>
+  mutate(term = 'eGFRcr')
 ```
 
-### GFR from  Cystatin C
+#### GFR from  Cystatin C
 
-#### All range
-
-```{r}
+```{r construct_egfr_cc_covars}
 ukb_egfr_cc <- construct_biochem_covars('Cystatin C', 
                                         blood = 'No', scaling = F) |>
   filter(!is.na(`Cystatin C`)) |>
@@ -572,26 +1058,25 @@ ukb_egfr_cc <- construct_biochem_covars('Cystatin C',
   ungroup()
 ```
 
-```{r}
+```{r scale_egfr_cc_covars}
 ukb_egfr_cc_scaled <- ukb_egfr_cc |>
   select(-gamma, -`Cystatin C`) |>
   mutate(across(where(is.numeric), scale)) 
 ```
 
-```{r}
+```{r fit_egfr_cc}
 ukb_egfr_cc_sig <- broom::tidy(
-  lm(CN ~ . , ukb_egfr_cc_scaled), 
+  lm(eGFRcc ~ . , ukb_egfr_cc_scaled), 
   conf.int = TRUE) |>
   mutate(lpval = -log10(p.value),
          scoeff = sign(estimate)) |>
-  filter(term == 'eGFRcc')
+  filter(term == 'CN') |>
+  mutate(term = 'eGFRcc')
 ```
 
-### GFR from Creatinine + Cystatin C
+#### GFR from Creatinine + Cystatin C
 
-#### All range
-
-```{r}
+```{r construct_egfr_cr_cc_covars}
 ukb_egfr_cr_cc <- construct_biochem_covars('Cystatin C', 
                          blood = 'No', scaling = F,
                          retain_eid = TRUE) |>
@@ -615,25 +1100,37 @@ ukb_egfr_cr_cc <- construct_biochem_covars('Cystatin C',
   ungroup()
 ```
 
-```{r}
-ukb_egfr_cr_cc_scaled <- ukb_egfr_cr_cc |>
-  select(-eid, -alpha, -kappa, -gamma, -Creatinine, -`Cystatin C`) |>
+```{r clean_egfr_cr_cc_covars}
+ukb_egfr_cr_cc_cov <- ukb_egfr_cr_cc |>
+  select(-alpha, -kappa, -gamma, -Creatinine, -`Cystatin C`)
+```
+
+```{r save_egfr_cr_cc_covars}
+ukb_egfr_cr_cc_cov |>
+  write_csv(file.path(root_fd, 'data', 'pheno', 'egfr_cr_cc_cov.csv'),
+            na = '')
+```
+
+```{r scale_egfr_cr_cc_covars}
+ukb_egfr_cr_cc_scaled <- ukb_egfr_cr_cc_cov |>
+  select(-eid) |>
   mutate(across(where(is.numeric), scale)) 
 ```
 
-```{r}
+```{r fit_egfr_cr_cc}
 ukb_egfr_cr_cc_sig <- broom::tidy(
-  lm(CN ~ . , ukb_egfr_cr_cc_scaled), 
+  lm(`eGFRcr+cc` ~ . , ukb_egfr_cr_cc_scaled), 
   conf.int = TRUE) |>
   mutate(lpval = -log10(p.value),
          scoeff = sign(estimate),
          term = gsub('`', '', term)) |>
-  filter(term == 'eGFRcr+cc')
+  filter(term == 'CN') |>
+  mutate(term = 'eGFRcr+cc')
 ```
 
-### All eGFRs
+#### Join eGFR associations without CRP
 
-```{r}
+```{r join_egfr_associations_without_crp}
 ukb_egfr_sig <- bind_rows(
   ukb_egfr_cr_sig,
   ukb_egfr_cc_sig,
@@ -641,42 +1138,13 @@ ukb_egfr_sig <- bind_rows(
 )
 ```
 
-## All Renal Biomarkers
+### CRP as covariate
 
-```{r}
-renal_biom <- c('Cystatin C', 'Creatinine', 'Urea', 'Urate', 
-                'Phosphate', 'Total protein')
-```
+#### GFR from creatinine
 
-```{r}
-ukb_renal_biom_cov <- construct_biochem_covars('Cystatin C', 
-                         blood = 'No', scaling = T) |>
-    bind_cols(lapply(
-      X = renal_biom[-1],
-      FUN = function(x) {
-        construct_biochem_covars(x,  blood = 'No', scaling = T) |>
-                   select(contains(x)) })) |>
-  select(-contains('assay date'))
-```
-
-```{r}
-ukb_renal_biom_sig <- broom::tidy(
-  lm(CN ~ . , ukb_renal_biom_cov), 
-  conf.int = TRUE) |>
-  mutate(lpval = -log10(p.value),
-         scoeff = sign(estimate),
-         term = gsub('`', '', term)) |>
-  filter(term %in% renal_biom)
-```
-
-
-## CRP as covariate
-
-### GFR from creatinine
-
-```{r}
+```{r construct_egfr_cr_covars_with_crp}
 ukb_egfr_cr_crp <- construct_biochem_covars(
-  'Creatinine', blood = 'No', scaling = F, smoking = F, crp = T) |>
+  'Creatinine', blood = 'No', scaling = F, crp = T) |>
   filter(!is.na(Creatinine)) |>
   mutate(
     gamma = if_else(Sex == 'Male', 142, 143.704),
@@ -691,28 +1159,27 @@ ukb_egfr_cr_crp <- construct_biochem_covars(
   ungroup()
 ```
 
-```{r}
+```{r scale_egfr_cr_covars_with_crp}
 ukb_egfr_cr_crp_scaled <- ukb_egfr_cr_crp |>
   select(-alpha, -kappa, -gamma, -Creatinine) |>
   mutate(across(where(is.numeric), scale)) 
 ```
 
-
-```{r}
+```{r fit_egfr_cr_with_crp}
 ukb_egfr_cr_crp_sig <- broom::tidy(
-  lm(CN ~ . , ukb_egfr_cr_crp_scaled), 
+  lm(eGFRcr ~ . , ukb_egfr_cr_crp_scaled), 
   conf.int = TRUE) |>
   mutate(lpval = -log10(p.value),
          scoeff = sign(estimate)) |>
-  filter(term == 'eGFRcr')
+  filter(term == 'CN') |>
+  mutate(term = 'eGFRcr')
 ```
 
+#### GFR from  Cystatin C
 
-### GFR from  Cystatin C
-
-```{r}
+```{r construct_egfr_cc_covars_with_crp}
 ukb_egfr_cc_crp <- construct_biochem_covars(
-  'Cystatin C', blood = 'No', scaling = F, smoking = F, crp = T) |>
+  'Cystatin C', blood = 'No', scaling = F, crp = T) |>
   filter(!is.na(`Cystatin C`)) |>
   mutate(
     gamma = if_else(Sex == 'Male', 133, 133*0.932)) |>
@@ -725,30 +1192,30 @@ ukb_egfr_cc_crp <- construct_biochem_covars(
   ungroup()
 ```
 
-```{r}
+```{r scale_egfr_cc_covars_with_crp}
 ukb_egfr_cc_crp_scaled <- ukb_egfr_cc_crp |>
   select(-gamma, -`Cystatin C`) |>
   mutate(across(where(is.numeric), scale)) 
 ```
 
-```{r}
+```{r fit_egfr_cc_with_crp}
 ukb_egfr_cc_crp_sig <- broom::tidy(
-  lm(CN ~ . , ukb_egfr_cc_crp_scaled), 
+  lm(eGFRcc ~ . , ukb_egfr_cc_crp_scaled), 
   conf.int = TRUE) |>
   mutate(lpval = -log10(p.value),
          scoeff = sign(estimate)) |>
-  filter(term == 'eGFRcc')
+  filter(term == 'CN') |>
+  mutate(term = 'eGFRcc')
 ```
 
+#### GFR from Creatinine + Cystatin C
 
-### GFR from Creatinine + Cystatin C
-
-```{r}
+```{r construct_egfr_cr_cc_covars_with_crp}
 ukb_egfr_cr_cc_crp <- construct_biochem_covars(
-  'Cystatin C', blood = 'No', scaling = F, smoking = F, crp = T,
+  'Cystatin C', blood = 'No', scaling = F, crp = T,
   retain_eid = TRUE) |>
     bind_cols(construct_biochem_covars(
-      'Creatinine', blood = 'No', scaling = F, smoking = F, crp = T) |>
+      'Creatinine', blood = 'No', scaling = F, crp = T) |>
         select(contains('Creatinine'))) |>
     filter(!is.na(Creatinine), !is.na(`Cystatin C`)) |>
     select(-contains('assay date'))  |>
@@ -767,76 +1234,51 @@ ukb_egfr_cr_cc_crp <- construct_biochem_covars(
   ungroup()
 ```
 
-```{r}
+```{r scale_egfr_cr_cc_covars_with_crp}
 ukb_egfr_cr_cc_crp_scaled <- ukb_egfr_cr_cc_crp |>
   select(-eid, -alpha, -kappa, -gamma, -Creatinine, -`Cystatin C`) |>
   mutate(across(where(is.numeric), scale)) 
 ```
 
-```{r}
+```{r fit_egfr_cr_cc_with_crp}
 ukb_egfr_cr_cc_crp_sig <- broom::tidy(
-  lm(CN ~ . , ukb_egfr_cr_cc_crp_scaled), 
+  lm(`eGFRcr+cc` ~ . , ukb_egfr_cr_cc_crp_scaled), 
   conf.int = TRUE) |>
   mutate(lpval = -log10(p.value),
          scoeff = sign(estimate),
          term = gsub('`', '', term)) |>
-  filter(term == 'eGFRcr+cc')
+  filter(term == 'CN') |>
+  mutate(term = 'eGFRcr+cc')
 ```
 
-### All eGFRs
+#### Join eGFRs associations with CRP
 
-```{r}
+```{r join_egfr_associations_with_crp}
 ukb_egfr_crp_sig <- bind_rows(
   ukb_egfr_cr_crp_sig,
   ukb_egfr_cc_crp_sig,
-  ukb_egfr_cr_cc_crp_sig
-)
+  ukb_egfr_cr_cc_crp_sig)
 ```
 
+### Plot eGFR associations
 
-### All Renal Biomarkers
-
-```{r}
-ukb_renal_biom_crp_cov <- construct_biochem_covars('Cystatin C', 
-                         blood = 'No', scaling = T, smoking = F, crp = T) |>
-    bind_cols(lapply(
-      X = renal_biom[-1],
-      FUN = function(x) {
-        construct_biochem_covars(x,  blood = 'No', scaling = T,
-                                 smoking = T, crp = T) |>
-                   select(contains(x)) })) |>
-  select(-contains('assay date'))
-```
-
-```{r}
-ukb_renal_biom_crp_sig <- broom::tidy(
-  lm(CN ~ . , ukb_renal_biom_crp_cov), 
-  conf.int = TRUE) |>
-  mutate(lpval = -log10(p.value),
-         scoeff = sign(estimate),
-         term = gsub('`', '', term)) |>
-  filter(term %in% renal_biom)
-```
-
-
-### All Renal Biomarkers and eGFR
-
-```{r}
-ukb_renal_crp_sig_p <- bind_rows(
-  ukb_renal_biom_crp_sig |>
-    mutate(type = 'Renal Function\nBlood Biomarkers',
-           covariates = 'Yes'),
-  ukb_renal_biom_sig |>
-    mutate(type = 'Renal Function\nBlood Biomarkers',
-           covariates = 'No'),
+```{r join_egfr_associations}
+egfr_labels <- ukb_egfr_crp_sig |>
+  arrange(desc(term)) |>
+  mutate(term = gsub('R', 'R<sub>', gsub('$', '</sub>', term))) |>
+  pull(term)
+ukb_egfr_all_sig <- bind_rows(
   ukb_egfr_crp_sig |>
     mutate(type = 'GFR\nEstimates',
            covariates = 'Yes'),
   ukb_egfr_sig |>
     mutate(type = 'GFR\nEstimates',
-           covariates = 'No')) |>
-  mutate(type = fct_rev(type), covariates = fct_rev(covariates)) |>
-  ggplot(aes(y = fct_rev(term), x = estimate, 
+           covariates = 'No'))
+```
+
+```{r plot_egfr_betas}
+ukb_egfr_betas_p <- ukb_egfr_all_sig |>
+  ggplot(aes(y = forcats::fct_rev(term), x = estimate, 
              xmin = conf.low, xmax = conf.high,
              shape = covariates, group = covariates)) +
   geom_vline(xintercept = 0, linewidth = 0.5, colour = 'grey80') +
@@ -845,8 +1287,9 @@ ukb_renal_crp_sig_p <- bind_rows(
                 linewidth = 0.75, alpha = 0.8,
                 position = position_dodge2(width = 0.75)) +
   facet_grid(rows = vars(type), scales = 'free', space = 'free') +
-  scale_x_continuous(limits = c(-0.03, 0.03),
+  scale_x_continuous(limits = c(-0.031, 0.031),
                      breaks = c(-0.03, 0, 0.03)) +
+  scale_y_discrete(labels = egfr_labels) +
   scale_fill_manual('CRP as cov.',
                     values = c('No' = 'chocolate4',
                                'Yes' = 'bisque3')) +
@@ -856,41 +1299,417 @@ ukb_renal_crp_sig_p <- bind_rows(
                        'Yes' = 24)) +
   labs(y = '', x = "Standardised Beta; 95% CI") +
   theme_pub() +
-  theme(legend.position = c(0.5, -0.22),
+  theme(legend.position = 'bottom',
         legend.direction = 'horizontal',
         legend.title = element_text(face = 'bold'),
         strip.text = element_blank(),
-        axis.text = element_text(size = 12),
+        axis.text.y = ggtext::element_markdown(size = 12),
         axis.title = element_text(size = 14),
-        axis.text.y = element_text(size = 12),
         plot.margin = grid::unit(c(0.1,0.1,2,0.1), 'lines'))
 ```
 
-```{r}
-ggsave(ukb_renal_crp_sig_p, 
-       filename = '../figures/4B.- Renal Biomarkers, CRP.png',
-       height = 3.75, width = 5.5)
+```{r save_egfr_betas_plot}
+ggsave(ukb_egfr_betas_p, 
+       filename = '../figures/4.B.- eGFR Betas.png',
+       height = 3, width = 8)
+```
+
+```{r plot_egfr_sig}
+ukb_egfr_sig_p <- ukb_egfr_all_sig |>
+  ggplot(aes(y = fct_rev(term), x = lpval, group = covariates)) +
+  geom_vline(xintercept = -log10(0.05), linewidth = 0.5, colour = 'grey80',
+             linetype = 'dashed') +
+  geom_col(aes(fill = covariates), colour = 'grey30', 
+                linewidth = 0.75, alpha = 0.8,
+                position = position_dodge2(width = 0.5)) +
+  scale_y_discrete(labels = egfr_labels) +
+  scale_fill_manual('CRP as cov.',
+                    values = c('No' = 'chocolate4',
+                               'Yes' = 'bisque3')) +
+  scale_shape_manual('CRP as cov.',
+                     values = c(
+                       'No' = 21,
+                       'Yes' = 24)) +
+  labs(y = '', x = bquote(bold(-log[10](p-value)))) +
+  theme_pub() +
+  theme(legend.position = 'bottom',
+        legend.direction = 'horizontal',
+        legend.title = element_text(face = 'bold'),
+        strip.text = element_blank(),
+        axis.text.y = ggtext::element_markdown(size = 12),
+        axis.title = element_text(size = 14),
+        plot.margin = grid::unit(c(0.1,0.1,2,0.1), 'lines'))
+```
+
+```{r save_egfr_plots}
+ggsave(
+  plot = (ukb_egfr_betas_p | (
+    ukb_egfr_sig_p +
+      theme(axis.text.y = element_blank(),
+            axis.title.y = element_blank(),
+            axis.ticks.y = element_blank()))
+    ) +
+  plot_layout(widths = c(0.6, 0.4)),
+  filename = file.path('..', 'figures', '4.B.- eGFR.png'), 
+  height = 3, width = 6)
+```
+
+## eGFR by Sequencing centre
+
+### Sanger
+
+#### No CRP as covariate
+
+```{r scale_egfr_cr_covars_sanger}
+ukb_egfr_cr_sanger_scaled <- ukb_egfr_cr |>
+  filter(`Seq Centre` == 'Sanger') |>
+  select(-alpha, -kappa, -gamma, -Creatinine, -`Seq Centre`) |>
+  mutate(across(where(is.numeric), scale)) 
+```
+
+```{r fit_egfr_cr_sanger}
+ukb_egfr_cr_sanger_sig <- broom::tidy(
+  lm( eGFRcr ~ . , ukb_egfr_cr_sanger_scaled), 
+  conf.int = TRUE) |>
+  mutate(lpval = -log10(p.value),
+         scoeff = sign(estimate)) |>
+  filter(term == 'CN') |>
+  mutate(term = 'eGFRcr')
+```
+
+```{r scale_egfr_cc_sanger}
+ukb_egfr_cc_sanger_scaled <- ukb_egfr_cc |>
+  filter(`Seq Centre` == 'Sanger') |>
+  select(-gamma, -`Cystatin C`, -`Seq Centre`) |>
+  mutate(across(where(is.numeric), scale)) 
+```
+
+```{r fit_egfr_cc_sanger}
+ukb_egfr_cc_sanger_sig <- broom::tidy(
+  lm(eGFRcc ~ . , ukb_egfr_cc_sanger_scaled), 
+  conf.int = TRUE) |>
+  mutate(lpval = -log10(p.value),
+         scoeff = sign(estimate)) |>
+  filter(term == 'CN') |>
+  mutate(term = 'eGFRcc')
+```
+
+```{r scale_egfr_cr_cc_sanger}
+ukb_egfr_cr_cc_sanger_scaled <- ukb_egfr_cr_cc |>
+  filter(`Seq Centre` == 'Sanger') |>
+  select(-eid, -alpha, -kappa, -gamma, 
+         -Creatinine, -`Cystatin C`, -`Seq Centre`) |>
+  mutate(across(where(is.numeric), scale)) 
+```
+
+```{r fit_egfr_cr_cc_sanger}
+ukb_egfr_cr_cc_sanger_sig <- broom::tidy(
+  lm(`eGFRcr+cc` ~ . , ukb_egfr_cr_cc_sanger_scaled), 
+  conf.int = TRUE) |>
+  mutate(lpval = -log10(p.value),
+         scoeff = sign(estimate),
+         term = gsub('`', '', term)) |>
+  filter(term == 'CN') |>
+  mutate(term = 'eGFRcr+cc')
+```
+
+```{r join_egfr_associations_sanger_without_crp}
+ukb_egfr_sanger_sig <- bind_rows(
+  ukb_egfr_cr_sanger_sig,
+  ukb_egfr_cc_sanger_sig,
+  ukb_egfr_cr_cc_sanger_sig)
+```
+
+#### CRP as covariate
+
+```{r scale_egfr_cr_sanger_with_crp}
+ukb_egfr_cr_crp_sanger_scaled <- ukb_egfr_cr_crp |>
+  filter(`Seq Centre` == 'Sanger') |>
+  select(-alpha, -kappa, -gamma, -Creatinine, -`Seq Centre`) |>
+  mutate(across(where(is.numeric), scale)) 
+```
+
+```{r fit_egfr_cr_sanger_with_crp}
+ukb_egfr_cr_crp_sanger_sig <- broom::tidy(
+  lm(eGFRcr ~ . , ukb_egfr_cr_crp_sanger_scaled), 
+  conf.int = TRUE) |>
+  mutate(lpval = -log10(p.value),
+         scoeff = sign(estimate)) |>
+  filter(term == 'CN') |>
+  mutate(term = 'eGFRcr')
+```
+
+```{r scale_egfr_cc_sanger_with_crp}
+ukb_egfr_cc_crp_sanger_scaled <- ukb_egfr_cc_crp |>
+  filter(`Seq Centre` == 'Sanger') |>
+  select(-gamma, -`Cystatin C`, -`Seq Centre`) |>
+  mutate(across(where(is.numeric), scale)) 
+```
+
+```{r fit_egfr_cc_sanger_with_crp}
+ukb_egfr_cc_crp_sanger_sig <- broom::tidy(
+  lm(eGFRcc ~ . , ukb_egfr_cc_crp_sanger_scaled), 
+  conf.int = TRUE) |>
+  mutate(lpval = -log10(p.value),
+         scoeff = sign(estimate)) |>
+  filter(term == 'CN') |>
+  mutate(term = 'eGFRcc')
+```
+
+```{r scale_egfr_cr_cc_sanger_with_crp}
+ukb_egfr_cr_cc_crp_sanger_scaled <- ukb_egfr_cr_cc_crp |>
+  filter(`Seq Centre` == 'Sanger') |>
+  select(-eid, -alpha, -kappa, -gamma,
+         -Creatinine, -`Cystatin C`, -`Seq Centre`) |>
+  mutate(across(where(is.numeric), scale)) 
+```
+
+```{r fit_egfr_cr_cc_sanger_with_crp}
+ukb_egfr_cr_cc_crp_sanger_sig <- broom::tidy(
+  lm(`eGFRcr+cc` ~ . , ukb_egfr_cr_cc_crp_sanger_scaled), 
+  conf.int = TRUE) |>
+  mutate(lpval = -log10(p.value),
+         scoeff = sign(estimate),
+         term = gsub('`', '', term)) |>
+  filter(term == 'CN') |>
+  mutate(term = 'eGFRcr+cc')
+```
+
+```{r join_egfr_associations_sanger_with_crp}
+ukb_egfr_crp_sanger_sig <- bind_rows(
+  ukb_egfr_cr_crp_sanger_sig,
+  ukb_egfr_cc_crp_sanger_sig,
+  ukb_egfr_cr_cc_crp_sanger_sig)
+```
+
+### deCODE
+
+#### No CRP as covariate
+
+```{r scale_egfr_cr_decode}
+ukb_egfr_cr_decode_scaled <- ukb_egfr_cr |>
+  filter(`Seq Centre` == 'deCODE') |>
+  select(-alpha, -kappa, -gamma, -Creatinine, -`Seq Centre`) |>
+  mutate(across(where(is.numeric), scale)) 
+```
+
+```{r fit_egfr_cr_decode}
+ukb_egfr_cr_decode_sig <- broom::tidy(
+  lm( eGFRcr ~ . , ukb_egfr_cr_decode_scaled), 
+  conf.int = TRUE) |>
+  mutate(lpval = -log10(p.value),
+         scoeff = sign(estimate)) |>
+  filter(term == 'CN') |>
+  mutate(term = 'eGFRcr')
+```
+
+```{r scale_egfr_cc_decode}
+ukb_egfr_cc_decode_scaled <- ukb_egfr_cc |>
+  filter(`Seq Centre` == 'deCODE') |>
+  select(-gamma, -`Cystatin C`, -`Seq Centre`) |>
+  mutate(across(where(is.numeric), scale)) 
+```
+
+```{r fit_egfr_cc_decode}
+ukb_egfr_cc_decode_sig <- broom::tidy(
+  lm(eGFRcc ~ . , ukb_egfr_cc_decode_scaled), 
+  conf.int = TRUE) |>
+  mutate(lpval = -log10(p.value),
+         scoeff = sign(estimate)) |>
+  filter(term == 'CN') |>
+  mutate(term = 'eGFRcc')
+```
+
+```{r scale_egfr_cr_cc_decode}
+ukb_egfr_cr_cc_decode_scaled <- ukb_egfr_cr_cc |>
+  filter(`Seq Centre` == 'deCODE') |>
+  select(-eid, -alpha, -kappa, -gamma, 
+         -Creatinine, -`Cystatin C`, -`Seq Centre`) |>
+  mutate(across(where(is.numeric), scale)) 
+```
+
+```{r fit_egfr_cr_cc_decode}
+ukb_egfr_cr_cc_decode_sig <- broom::tidy(
+  lm(`eGFRcr+cc` ~ . , ukb_egfr_cr_cc_decode_scaled), 
+  conf.int = TRUE) |>
+  mutate(lpval = -log10(p.value),
+         scoeff = sign(estimate),
+         term = gsub('`', '', term)) |>
+  filter(term == 'CN') |>
+  mutate(term = 'eGFRcr+cc')
+```
+
+```{r join_egfr_associations_decode_without_crp}
+ukb_egfr_decode_sig <- bind_rows(
+  ukb_egfr_cr_decode_sig,
+  ukb_egfr_cc_decode_sig,
+  ukb_egfr_cr_cc_decode_sig)
+```
+
+#### CRP as covariate
+
+```{r scale_egfr_cr_decode_with_crp}
+ukb_egfr_cr_crp_decode_scaled <- ukb_egfr_cr_crp |>
+  filter(`Seq Centre` == 'deCODE') |>
+  select(-alpha, -kappa, -gamma, -Creatinine, -`Seq Centre`) |>
+  mutate(across(where(is.numeric), scale)) 
+```
+
+```{r fit_egfr_cr_decode_with_crp}
+ukb_egfr_cr_crp_decode_sig <- broom::tidy(
+  lm(eGFRcr ~ . , ukb_egfr_cr_crp_decode_scaled), 
+  conf.int = TRUE) |>
+  mutate(lpval = -log10(p.value),
+         scoeff = sign(estimate)) |>
+  filter(term == 'CN') |>
+  mutate(term = 'eGFRcr')
+```
+
+```{r scale_egfr_cc_decode_with_crp}
+ukb_egfr_cc_crp_decode_scaled <- ukb_egfr_cc_crp |>
+  filter(`Seq Centre` == 'deCODE') |>
+  select(-gamma, -`Cystatin C`, -`Seq Centre`) |>
+  mutate(across(where(is.numeric), scale)) 
+```
+
+```{r fit_egfr_cc_decode_with_crp}
+ukb_egfr_cc_crp_decode_sig <- broom::tidy(
+  lm(eGFRcc ~ . , ukb_egfr_cc_crp_decode_scaled), 
+  conf.int = TRUE) |>
+  mutate(lpval = -log10(p.value),
+         scoeff = sign(estimate)) |>
+  filter(term == 'CN') |>
+  mutate(term = 'eGFRcc')
+```
+
+```{r scale_egfr_cr_cc_decode_with_crp}
+ukb_egfr_cr_cc_crp_decode_scaled <- ukb_egfr_cr_cc_crp |>
+  filter(`Seq Centre` == 'deCODE') |>
+  select(-eid, -alpha, -kappa, -gamma,
+         -Creatinine, -`Cystatin C`, -`Seq Centre`) |>
+  mutate(across(where(is.numeric), scale)) 
+```
+
+```{r fit_egfr_cr_cc_decode_with_crp}
+ukb_egfr_cr_cc_crp_decode_sig <- broom::tidy(
+  lm(`eGFRcr+cc` ~ . , ukb_egfr_cr_cc_crp_decode_scaled), 
+  conf.int = TRUE) |>
+  mutate(lpval = -log10(p.value),
+         scoeff = sign(estimate),
+         term = gsub('`', '', term)) |>
+  filter(term == 'CN') |>
+  mutate(term = 'eGFRcr+cc')
+```
+
+```{r join_egfr_associations_decode_with_crp}
+ukb_egfr_crp_decode_sig <- bind_rows(
+  ukb_egfr_cr_crp_decode_sig,
+  ukb_egfr_cc_crp_decode_sig,
+  ukb_egfr_cr_cc_crp_decode_sig
+)
+```
+
+### Combined
+
+```{r join_egfr_associations_by_seq_centre}
+ukb_egfr_sc_sig <- bind_rows(
+  ukb_egfr_sanger_sig |> mutate(covariates = 'No', SC = 'Sanger'),
+  ukb_egfr_crp_sanger_sig |> mutate(covariates = 'Yes', SC = 'Sanger'),
+  ukb_egfr_decode_sig |> mutate(covariates = 'No', SC = 'deCODE'),
+  ukb_egfr_crp_decode_sig |> mutate(covariates = 'Yes', SC = 'deCODE'))
+```
+
+```{r plot_egfr_seq_centre_betas}
+ukb_egfr_sc_betas_p <- ukb_egfr_sc_sig |>
+  ggplot(aes(y = forcats::fct_rev(term), x = estimate, 
+             xmin = conf.low, xmax = conf.high,
+             shape = covariates, group = covariates)) +
+  geom_vline(xintercept = 0, linewidth = 0.5, colour = 'grey80') +
+  geom_pointrange(aes(fill = covariates),
+                  colour = 'grey30', size = 1,
+                linewidth = 0.75, alpha = 0.8,
+                position = position_dodge2(width = 0.75)) +
+  facet_grid(rows = vars(SC), scales = 'free', space = 'free') +
+  scale_x_continuous(limits = c(-0.03, 0.03),
+                     breaks = c(-0.03, 0, 0.03)) +
+  scale_y_discrete(labels = egfr_labels) +
+  scale_fill_manual('CRP as cov.',
+                    values = c('No' = 'chocolate4',
+                               'Yes' = 'bisque3')) +
+  scale_shape_manual('CRP as cov.',
+                     values = c(
+                       'No' = 21,
+                       'Yes' = 24)) +
+  labs(y = '', x = "Standardised Beta; 95% CI") +
+  theme_pub() +
+  theme(legend.position = 'bottom',
+        legend.direction = 'horizontal',
+        legend.title = element_text(face = 'bold'),
+        strip.text = element_blank(),
+        axis.text.y = ggtext::element_markdown(size = 12),
+        axis.title = element_text(size = 14),
+        plot.margin = grid::unit(c(0.1,0.1,2,0.1), 'lines'))
+```
+
+```{r plot_egfr_seq_centre_sig}
+ukb_egfr_sc_sig_p <- ukb_egfr_sc_sig |>
+  ggplot(aes(y = fct_rev(term), x = lpval, group = covariates)) +
+  geom_vline(xintercept = -log10(0.05), linewidth = 0.5, colour = 'grey80',
+             linetype = 'dashed') +
+  geom_col(aes(fill = covariates), colour = 'grey30', 
+                linewidth = 0.75, alpha = 0.8,
+                position = position_dodge2(width = 0.5)) +
+  facet_grid(rows = vars(SC), scales = 'free', space = 'free') +
+  scale_y_discrete(labels = egfr_labels) +
+  scale_fill_manual('CRP as cov.',
+                    values = c('No' = 'chocolate4',
+                               'Yes' = 'bisque3')) +
+  scale_shape_manual('CRP as cov.',
+                     values = c(
+                       'No' = 21,
+                       'Yes' = 24)) +
+  labs(y = '', x = bquote(bold(-log[10](p-value)))) +
+  theme_pub() +
+  theme(legend.position = 'bottom',
+        legend.direction = 'horizontal',
+        legend.title = element_text(face = 'bold'),
+        axis.text.y = ggtext::element_markdown(size = 12),
+        axis.title = element_text(size = 14),
+        plot.margin = grid::unit(c(0.1,0.1,2,0.1), 'lines'))
+```
+
+```{r save_egfr_seq_centre_plots}
+ggsave(
+  plot = (ukb_egfr_sc_betas_p | (
+    ukb_egfr_sc_sig_p +
+      theme(axis.text.y = element_blank(),
+            axis.title.y = element_blank(),
+            axis.ticks.y = element_blank()))
+    ) +
+  plot_layout(widths = c(0.6, 0.4)),
+  filename = file.path('..', 'figures_supp', 'S15B.- eGFR, SC.png'), 
+  height = 6, width = 10)
 ```
 
 ## Staircase eGFR
 
-```{r}
+```{r define_group_labels}
 group_labels <- c('Low', 'Mid-Low', 'Mid', 'Mid-High', 'High')
 ```
 
-```{r}
+```{r split_egfr_values}
 ukb_egfr_cr_cc_split <- ukb_egfr_cr_cc |>
   mutate(eGFR_group = cut_number(`eGFRcr+cc`,
-                                        n = 5, labels = group_labels))
+                                 n = 5, labels = group_labels))
 ```
 
-```{r}
+```{r read_adj_cn}
 ukb_adj_47s <- read_csv(
   file.path(root_fd, 'data', 'cn', 'ukb_adj_cn_wb.csv'),
   col_types = cols())
 ```
 
-```{r}
+```{r slice_egfr_cn}
 ukb_egfr_ci_adj <- ukb_egfr_cr_cc_split |>
     inner_join(ukb_adj_47s, by = 'eid') |>
     group_by(eGFR_group) |>
@@ -903,37 +1722,37 @@ ukb_egfr_ci_adj <- ukb_egfr_cr_cc_split |>
               .groups = 'drop')
 ```
 
-```{r}
+```{r plot_egfr_groups}
 ukb_egfr_ci_adj_p <- ukb_egfr_ci_adj |>
-  ggplot(aes(x = eGFR_group, fill = eGFR_group,
-             ymin = value_low, ymax = value_high, y = value)) +
-  geom_crossbar(color = 'grey20', alpha = 0.8, size = 0.75) +
-  scale_y_continuous(limits = c(1.59e-4, 1.63e-4),
+  ggplot(aes(y = eGFR_group, fill = eGFR_group,
+             xmin = value_low, xmax = value_high, x = value)) +
+  geom_crossbar(color = 'grey20', alpha = 0.8, linewidth = 0.75) +
+  scale_x_continuous(limits = c(1.585e-4, 1.635e-4),
                      breaks = c(1.59e-4, 1.61e-4, 1.63e-4),
                      labels = fancy_scientific) +
   scale_fill_brewer(palette = 'Oranges') +
-  labs(x = 'eGFRcr+cc Group', 
-       y = bquote(bold(atop("SC-Adjusted 18S Ratio", 
-                 "(Mean" %+-% "95% CI)")))) +
+  labs(y = 'eGFR<sub>cr+cc</sub> Group', 
+       x = bquote(bold(atop("SC-Adjusted 18S Ratio (Mean" %+-% "95% CI)")))) +
   theme_pub() +
-  theme(legend.position = 'none')
+  theme(legend.position = 'none',
+        axis.title.y = element_markdown())
 ```
 
-```{r}
+```{r save_egfr_groups_plot}
 ggsave(ukb_egfr_ci_adj_p, 
        filename = '../figures/4.C.- Staircase eGFR.png',
-       height = 3, width = 5.5)
+       height = 2.5, width = 6)
 ```
 
 ## Kidney disease
 
-```{r}
+```{r read_kidney_diseases}
 ukb_kidney_d_ids <- read_csv(
   file.path(root_fd, 'data/releases/ukb_ids_kidney_d.csv'),
   col_types = cols())
 ```
 
-```{r warning = F}
+```{r encode_kidney_diseases ,warning = F}
 ukb_kidney_d <- read_csv(
  file.path(root_fd, 'data/pheno/ukb_kidney_d.csv'),
   col_types = cols()) |> 
@@ -954,13 +1773,13 @@ ukb_kidney_d <- read_csv(
   pivot_wider(names_from = title, values_from = has)
 ```
 
-```{r}
+```{r define_kidney_disease_groups}
 ukb_glom_d_c <- paste0('N0', 1:8)
 ukb_fail_kidney_c <- paste0('N', c(17:18))
 ukb_urolithiasis_c <- paste0('N', c(20:23))
 ```
 
-```{r}
+```{r group_kidney_diseases}
 ukb_group_kidney <- ukb_kidney_d |>
   pivot_longer(-eid) |>
   group_by(name) |>
@@ -976,64 +1795,256 @@ ukb_group_kidney <- ukb_kidney_d |>
   ungroup()
 ```
 
-```{r}
+```{r construct_kidney_disease_covars}
 ukb_group_kidney_covar <- ukb_group_kidney |>
   inner_join(ukb_gwas_covars |>
                select(-Height, -starts_with('Blood')), by = 'eid')
 ```
 
-```{r}
+```{r scale_kidney_disease_covars}
 ukb_group_kidney_scaled <- ukb_group_kidney_covar |>
   select(-eid) |>
   mutate(across(where(is.numeric), scale)) 
 ```
 
-```{r}
+```{r define_kidney_disease_group_names}
 kidney_gs <- colnames(ukb_group_kidney)[-1]
-ukb_group_kidney_sig <- bind_rows(
-  lapply(
-    X = kidney_gs,
-    FUN = function(x) {
-      kidney_gs_other <- setdiff(kidney_gs, x)
-      broom::tidy(
-        lm(CN ~ . , ukb_group_kidney_scaled |>
-             select(-all_of(kidney_gs_other))), 
-        conf.int = TRUE) |>
-        mutate(lpval = -log10(p.value),
-               scoeff = sign(estimate)) |>
-        filter(grepl(paste0(kidney_gs, collapse = '|'), term))
-    })) |>
-  mutate(term = gsub('`|TRUE', '', term))
 ```
 
-```{r}
-ukb_group_kidney_sig_p <- ukb_group_kidney_sig |>
+```{r fit_kidney_disease_function}
+fit_kidney_logit <- function(df) {
+  bind_rows(
+    lapply(
+      X = kidney_gs,
+      FUN = function(x) {
+        kidney_gs_other <- setdiff(kidney_gs, x)
+        broom::tidy(
+          glm(as.formula(paste0('`', stringr::str_trim(x), '` ~ . ')),
+              df |>
+               select(-all_of(kidney_gs_other)), 
+          family = 'binomial'),
+          conf.int = TRUE) |>
+          mutate(lpval = -log10(p.value),
+                 scoeff = sign(estimate)) |>
+          filter(term == 'CN') |>
+          select(-term) |>
+          mutate(term = x) |>
+          relocate(term)
+      }))
+}
+```
+
+```{r fit_kidney_diseases}
+ukb_group_kidney_logit_sig <- fit_kidney_logit(ukb_group_kidney_scaled)
+```
+
+```{r calculate_kidney_diseases_odds_ratios}
+ukb_group_kidney_or <-  ukb_group_kidney_logit_sig |>
   mutate(OR = exp(estimate), OR_l = exp(conf.low), OR_h = exp(conf.high)) |>
   mutate(
     name = case_when(
-     grepl('Gl', term) ~ 'Glomerular Disease\n(N00-N08)\n[N = 1,310]', 
-     grepl('Kid', term) ~ 'Kidney Failure\n(N17-N18)\n[N = 12,689]',
-     grepl('Uro', term) ~ 'Urolithiasis \n(N20-N23)\n[N = 5,144]'
+     grepl('Gl', term) ~ 'Glomerular\nDisease\n(N00-N08)\n[N = 1,310]', 
+     grepl('Kid', term) ~ 'Kidney\nFailure\n(N17-N18)\n[N = 12,689]',
+     grepl('Uro', term) ~ '\nUrolithiasis\n(N20-N23)\n[N = 5,144]'
     ) ) |>
-  ggplot(aes(x = name, y = OR, ymin = OR_l, ymax = OR_h)) +
-  geom_hline(yintercept = 1, linewidth = 0.5, colour = 'grey80') +
-  geom_pointrange(colour = 'grey30', size = 1, shape = 22,
-                  fill = 'steelblue3',
+  mutate(name = forcats::fct_rev(forcats::fct_inorder(name)))
+```
+
+```{r plot_kidney_disease_odds_ratios}
+ukb_group_kidney_logit_beta_p <- ukb_group_kidney_or |>
+  ggplot(aes(y = name, x = OR, xmin = OR_l, xmax = OR_h)) +
+  geom_vline(xintercept = 1, linewidth = 0.5, colour = 'grey80') +
+  geom_pointrange(colour = 'grey30', size = 1.5, shape = 22,
+                  fill = 'sienna3',
                 linewidth = 0.75, alpha = 0.8,
                 position = position_dodge2(width = 0.75)) +
-  scale_y_continuous(limits = c(0.925, 1.075),
+  scale_x_continuous(limits = c(0.925, 1.075),
                      breaks = c(0.95, 1, 1.05)) +
-  labs(x = '', y = "Odds Ratio; 95% CI") +
+  labs(y = '', x = "Odds Ratio; 95% CI") +
   theme_pub() +
   theme(legend.position = 'bottom',
         strip.text = element_text(size = 12),
         axis.text = element_text(size = 12),
         axis.title = element_text(size = 14),
-        axis.text.y = element_text(size = 12))
+        axis.text.x = element_text(size = 12))
 ```
 
-```{r}
-ggsave(ukb_group_kidney_sig_p, 
-       filename = '../figures/4.D.- Kidney Disease.png', 
-       height = 3, width = 5)
+```{r plot_kidney_diseases_sig}
+ukb_group_kidney_logit_sig_p <- ukb_group_kidney_or |>
+  ggplot(aes(y = name, x = lpval)) +
+  geom_col(colour = 'grey30', size = 1, fill = 'grey85',
+                linewidth = 0.75, alpha = 0.8, width = 0.65,
+                position = position_dodge2(width = 0.65)) +
+  geom_vline(xintercept = -log10(.05), 
+             linewidth = 0.5, colour = 'grey70',
+             linetype = 'dashed') +
+  labs(y = '', x = bquote(bold(-log[10](p-value)))) +
+  theme_pub() +
+  theme(legend.position = 'bottom',
+        strip.text = element_text(size = 12),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        axis.text.x = element_text(size = 12))
+```
+
+```{r save_kidney_diseases_plots}
+ggsave(
+  plot = (ukb_group_kidney_logit_beta_p | (
+    ukb_group_kidney_logit_sig_p +
+      theme(axis.text.y = element_blank(),
+            axis.title.y = element_blank(),
+            axis.ticks.y = element_blank()))
+    ) +
+  plot_layout(widths = c(0.6, 0.4)),
+  filename = file.path('..', 'figures', '4.D.- Kidney Disease.png'), 
+  height = 3.5, width = 6.5)
+```
+
+### Other Ethnicities
+
+```{r read_kidney_diseases_all_eth, warning = F}
+ukb_kidney_d_all_eth <- read_csv(
+  paste0('~/OneDrive - Queen Mary, University of London/comp_bio/', 
+         'human_rdna/ukb/data/pheno/ukb_kidney_d_all_eth.csv'),
+  col_types = cols()) |> 
+  group_by(eid) |>
+  pivot_longer(-eid, names_to = 'id', values_to = 'val') |>
+    mutate(val = if_else(
+      as.numeric(lubridate::year(val)) < 1904 |
+        as.numeric(lubridate::year(val)) > 2036, NA, val)) |>
+  mutate(has = ! is.na(val)) |>
+  select(-val) |>
+  group_by(id) |>
+  separate(id, into = 'id', sep = '-', extra = 'drop') |>
+  mutate(id = as.numeric(id)) |>
+  inner_join(ukb_kidney_d_ids |> select(id, title), by = 'id') |>
+  mutate(title = gsub('Date |first reported ', '', title)) |>
+  arrange(eid, title) |>
+  select(-id) |>
+  pivot_wider(names_from = title, values_from = has)
+```
+
+```{r read_all_cn}
+ukb_47s <- read_csv(
+  file.path(root_fd, 'data', 'cn', 'ukb_47s.csv'),
+  col_types = cols())
+```
+
+```{r read_demographics}
+ukb_demo <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_demo.csv'),
+  col_types = cols())
+```
+
+```{r identify_cn_other_eth}
+ukb_47s_o <- ukb_demo %>%
+  inner_join(ukb_47s, by = 'eid') %>%
+  filter(Eth_Back != 1001)
+```
+
+```{r read_genotyping_arrays}
+ukb_geno_array <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_array.csv'),
+  col_types = cols()
+)
+```
+
+```{r read_pcs}
+ukb_pcs <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_pc.csv'),
+  col_types = cols()
+)
+```
+
+```{r read_seq_rel}
+ukb_sr <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_sr.csv'),
+  col_types = cols()
+)
+```
+
+```{r read_adj_tel_length}
+ukb_atl <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_adj_tl.csv'),
+  col_types = cols()
+)
+```
+
+```{r read_assessment_centre}
+ukb_ac <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_ac.csv'),
+  col_types = cols()
+)
+```
+
+```{r identify_kidney_diseases_other_eth}
+ukb_group_kidney_o <- ukb_kidney_d_all_eth |>
+  filter(eid %in% ukb_47s_o$eid) |>
+  pivot_longer(-eid) |>
+  group_by(name) |>
+  separate(name, into = c('code'), sep = ' ', extra = 'drop') |>
+  filter(code %in% c(ukb_glom_d_c, ukb_fail_kidney_c, ukb_urolithiasis_c)) |>
+  mutate(kidney_g = case_when(
+    code %in% ukb_glom_d_c ~ 'Glomerular D.',
+    code %in% ukb_fail_kidney_c ~ 'Kidney Fail.', 
+    code %in% ukb_urolithiasis_c ~ 'Urolithiasis')) |>
+  group_by(eid, kidney_g) |>
+  summarise(`Kidney D.` = any(value), .groups = 'drop') |>
+  pivot_wider(names_from = 'kidney_g', values_from = `Kidney D.`) |>
+  ungroup()
+```
+
+```{r construct_kidney_disease_covars_other_eth}
+ukb_covars_kidney_o <- ukb_47s_o %>%
+    filter(eid %in% c(ukb_geno_array %>% 
+                        filter(Array == 1) %>% pull(eid))) %>%
+    inner_join(ukb_pcs, by = 'eid') %>%
+    inner_join(ukb_sr, by = 'eid') %>%
+    inner_join(ukb_atl, by = 'eid') %>%
+    inner_join(ukb_ac %>% select(-coding), by = 'eid') %>%
+    inner_join(ukb_group_kidney_o, by = 'eid') %>%
+    mutate(`Age Sq` = Age * Age) %>%
+    select(eid, Sex, 
+           starts_with('Age'), 
+           Eth_Back,
+           contains('Centre'),
+           paste0('PC', 1:10),
+           starts_with('Adj'),
+           all_of(kidney_gs),
+           CN)
+
+ukb_covars_kidney_o[is.na(ukb_covars_kidney_o) | 
+                      ukb_covars_kidney_o == "Inf"] <- NA
+```
+
+```{r scale_kidney_disease_covars_other_eth}
+ukb_group_kidney_o_scaled <- ukb_covars_kidney_o |>
+  select(-eid) |>
+  mutate(across(where(is.numeric), scale)) 
+```
+
+```{r fit_kidney_diseases_other_eth, warning = F}
+ukb_group_kidney_o_sig <- suppressWarnings(
+  bind_rows(
+  lapply(
+    X = kidney_gs,
+    FUN = function(x) {
+      kidney_gs_other <- setdiff(kidney_gs, x)
+      broom::tidy(
+          glm(as.formula(paste0('`', stringr::str_trim(x), '` ~ . ')),
+              ukb_group_kidney_o_scaled |> select(-all_of(kidney_gs_other)), 
+          family = 'binomial'),
+          conf.int = TRUE) |>
+        mutate(lpval = -log10(p.value),
+               scoeff = sign(estimate))  |>
+          filter(term == 'CN') |>
+          select(-term) |>
+          mutate(term = x) |>
+          relocate(term)
+    })))
+```
+
+```{r display_odds_ratios_kidney_diseases_other_eth}
+ukb_group_kidney_o_sig |>
+  mutate(OR = exp(estimate), OR_l = exp(conf.low), OR_h = exp(conf.high))
 ```

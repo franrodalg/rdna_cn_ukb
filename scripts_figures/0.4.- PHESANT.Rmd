@@ -2,36 +2,37 @@
 title: "Prepare data for PHESANT analysis"
 ---
 
-```{r}
+```{r setup}
 source('0.0.- Setup.R')
 ```
 
-```{r}
+```{r read_variables}
 pheno_vars <- read_csv(file.path(
-  root_fd, 'data/releases/ukb_ids_releases.csv'),
+  root_fd, 'data', 'releases', 'ukb_ids_releases.csv'),
   col_types = cols()) |> 
   arrange(category) |> 
   mutate(cat_id=dense_rank(category)) |> relocate(cat_id)
 ```
 
-```{r}
+```{r extract_covariates}
 phesant_covars <- pheno_vars |>
   filter(id %in% c(31, 21022, 22009, 22192)) |>
   select(-cat_id)
 ```
 
-```{r}
-phesant_control <- pheno_vars |>
+```{r identify_blood_variables}
+phesant_blood <- pheno_vars |>
   filter(cat_id == 19) |>
   select(-cat_id)
 ```
 
-```{r}
-phesant_control |> 
-  write_csv(file.path(root_fd, 'data/phesant/input/phesant_blood.csv'))
+```{r save_blood_variables}
+phesant_blood |> 
+  write_csv(file.path(root_fd, 'data',
+                      'phesant', 'input', 'phesant_blood.csv'))
 ```
 
-```{r}
+```{r select_variables}
 phesant_vars <- pheno_vars |>
   filter(cat_id %in% c(
     7, 8, 16, 17, 19, 21, 24, 25, 27, 28, 32, 34, 35, 37, 40, 41,
@@ -54,40 +55,40 @@ phesant_vars <- pheno_vars |>
   select(-cat_id)
 ```
 
-```{r}
+```{r save_phesant_variables}
 phesant_vars |> 
   write_csv(file.path(
-    root_fd, 'data/phesant/input/phesant_vars_with_bc.csv'),
+    root_fd, 'data', 'phesant', 'input', 'phesant_vars_with_bc.csv'),
     na = "")
 ```
 
-```{r}
+```{r save_phesant_covariates}
 read_csv(file.path(
-  root_fd, 'data/pheno/ukb_gwas_covars.csv'),
+  root_fd, 'data', 'pheno', 'ukb_gwas_covars.csv'),
   col_types = cols()) |>
   inner_join(
     read_csv(file.path(
-      root_fd, 'data/pheno/ukb_participants_latest.csv'),
+      root_fd, 'data', 'pheno', 'ukb_participants_latest.csv'),
       col_types = cols()),
     by = 'eid') |>
   select(-Height, -starts_with('Blood'), -CN) |>
   rename(AgeSq=`Age Sq`, AdjTL=`Adj TL`) |>
   write_csv(file.path(
-    root_fd, 'data/phesant/input/phesant_cov.csv'),
+    root_fd, 'data', 'phesant', 'input', 'phesant_cov.csv'),
     na = '')
 ```
 
-```{r}
+```{r save_phesant_traits}
 read_csv(file.path(
-  root_fd, 'data/pheno/ukb_blood_counts.csv'),
+  root_fd, 'data', 'pheno', 'ukb_blood_counts.csv'),
   col_types = cols())  |>
   inner_join(
     read_csv(file.path(
-      root_fd, 'data/pheno/ukb_participants_latest.csv'),
+      root_fd, 'data', 'pheno', 'ukb_participants_latest.csv'),
       col_types = cols()),
     by = 'eid') |>
   inner_join(read_csv(file.path(
-    root_fd, 'data/pheno/ukb_gwas_covars.csv'),
+    root_fd, 'data', 'pheno', 'ukb_gwas_covars.csv'),
     col_types = cols()) |>
                select(eid, CN),
              by = 'eid') |>
@@ -97,32 +98,6 @@ read_csv(file.path(
   select(eid, CN, NeutroCount = `Neutrophil #`, PlatCount = `Platelet #`,
          LymphCount = `Lymphocyte #`, NLR, PLR, SII) |>
   write_csv(file.path(
-    root_fd, 'data/phesant/input/phesant_traits.csv'), na = '')
-```
-
-### rDNA ratios
-
-```{r}
-read_csv(file.path(
-  root_fd, 'data/pheno/ukb_blood_counts.csv'),
-  col_types = cols())  |>
-  inner_join(
-    read_csv(file.path(
-      root_fd, 'data/pheno/ukb_participants_latest.csv'),
-      col_types = cols()),
-    by = 'eid') |>
-  inner_join(read_csv(file.path(
-    root_fd, 'data/pheno/ukb_gwas_covars.csv'),
-    col_types = cols()) |>
-      select(eid, CN),
-    by = 'eid') |>
-  inner_join(read_csv(file.path(
-    root_fd, 'data/cn/ukb_5s.csv'), col_types = cols()),
-             by = 'eid') |>
-  mutate(rRNA_Ratio = CN / ratio_all_5s) |>
-  select(eid, rRNA_Ratio) |>
-  write_csv(file.path(
-    root_fd, 'data/phesant/input/phesant_rrna_ratio.csv'),
-    na = '')
+    root_fd, 'data', 'phesant', 'input', 'phesant_traits.csv'), na = '')
 ```
 

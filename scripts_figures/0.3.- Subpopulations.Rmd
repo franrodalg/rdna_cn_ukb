@@ -2,17 +2,17 @@
 title: "0.3.- Create Subpopulations from UK Biobank participants"
 ---
 
-```{r}
+```{r setup}
 source('0.0.- Setup.R')
 ```
 
-```{r}
+```{r read_diseases}
 ukb_diseases <- read_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_diseases.csv'),
 col_types = cols())
 ```
 
-```{r}
+```{r find_cancer}
 ukb_blood_cancer_codes <- read_csv(
   file.path(root_fd, 'data', 'pheno', 'var_20001_enc.csv'),
   col_types = cols()) |>
@@ -29,7 +29,7 @@ ukb_d_cancer_inst_0_samples <- ukb_diseases |>
   mutate(blood_cancer = T)
 ```
 
-```{r}
+```{r find_non_cancer}
 ukb_non_cancer_disease_codes <- read_csv(
   file.path(root_fd, 'data', 'pheno', 'var_20002_enc.csv'),
   col_types = cols()) |>
@@ -47,7 +47,7 @@ ukb_d_non_cancer_inst_0_samples <- ukb_diseases |>
 ```
 
 
-```{r, warning = F}
+```{r read_additional_fields, warning = F}
 ukb_crp_bc <- read_csv(
   file.path(root_fd, 'data', 'metadata', 'ukb51456.csv'),
   col_types=cols()) |>
@@ -56,26 +56,25 @@ ukb_crp_bc <- read_csv(
          wbc = `30000-0.0`,
          hemoglobin = `30020-0.0`,
          platelets = `30080-0.0`)
-```
 
-```{r}
 ukb_imm_ret_hcrit <- read_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_imm_ret_hcrit.csv'),
   col_types = cols()) |>
   select(eid, imm_ret = `30280-0.0`, hematocrit = `30030-0.0`)
+
 ukb_preg <- read_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_preg.csv'),
   col_types = cols()) |>
   select(eid, pregnant = `3140-0.0`)
 ```
 
-```{r}
+```{r read_generic_covars}
 ukb_gwas_covars <- read_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_gwas_covars.csv'),
   col_types = cols()) 
 ```
 
-```{r}
+```{r construct_complete_covars}
 ukb_covars_wb_joined_crp <- ukb_gwas_covars |>
   inner_join(ukb_crp_bc |>
                select(eid, crp, platelets, wbc, hemoglobin),
@@ -86,19 +85,19 @@ ukb_covars_wb_joined_crp <- ukb_gwas_covars |>
 
 ## All unrelated
 
-```{r}
+```{r read_demographics}
 ukb_demo <- read_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_demo.csv'),
   col_types = cols())
 ```
 
-```{r}
+```{r read_blood_ratios}
 ukb_br <- read_csv(
     file.path(root_fd, 'data', 'pheno', 'ukb_blood_ratios.csv'),
     col_types = cols())
 ```
 
-```{r}
+```{r construct_blood_ratios_covars}
 ukb_covars_br <- ukb_gwas_covars |> 
   inner_join(ukb_br, by = 'eid')
 ```
@@ -107,19 +106,13 @@ ukb_covars_br <- ukb_gwas_covars |>
 
 #### Unrelated
 
-```{r}
-ukb_demo <- read_csv(
-  file.path(root_fd, 'data', 'pheno', 'ukb_demo.csv'),
-  col_types = cols())
-```
-
-```{r}
+```{r read_families}
 ukb_families <- read_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_families.csv'),
   col_types = cols())
 ```
 
-```{r}
+```{r find_unrelated}
 ukb_demo_unrel <- bind_rows(
   ukb_demo |>
     inner_join(ukb_families, by = 'eid') |>
@@ -132,19 +125,19 @@ ukb_demo_unrel <- bind_rows(
   arrange(eid)
 ```
 
-```{r}
-ukb_gwas_unrel <- ukb_gwas_covars |> filter(
+```{r construct_covars_unrel}
+ukb_unrel_covars <- ukb_gwas_covars |> filter(
   eid %in% ukb_demo_unrel$eid)
 ```
 
-```{r}
-ukb_gwas_unrel |> 
+```{r save_covars_unrel}
+ukb_unrel_covars |> 
   write_csv('../../../data/pheno/unrel_covars_wb.csv',
             na = '')
 ```
 
-```{r}
-ukb_gwas_unrel_bolt <- ukb_gwas_unrel |> 
+```{r format_covars_unrel}
+ukb_unrel_covars_bolt <- ukb_unrel_covars |> 
   mutate(FID=eid, IID=eid) |>
   select(-eid) |>
   relocate(FID, .before=Sex) |>
@@ -153,33 +146,33 @@ ukb_gwas_unrel_bolt <- ukb_gwas_unrel |>
          `As Centre` = as.numeric(as.factor(`As Centre`)),
          `Seq Centre` = as.numeric(as.factor(`Seq Centre`)))
 
-colnames(ukb_gwas_unrel_bolt) <- gsub(' ', '_',
+colnames(ukb_unrel_covars_bolt) <- gsub(' ', '_',
        c('FID', 'IID',
          tolower(
            colnames(
-             ukb_gwas_unrel_bolt |> select(-ends_with('ID'))))))
+             ukb_unrel_covars_bolt |> select(-ends_with('ID'))))))
 ```
 
-```{r}
-ukb_gwas_unrel_bolt |>
+```{r save_covars_unrel_formatted}
+ukb_unrel_covars_bolt |>
   write_delim(file.path(root_fd, 'sc_rap', 'rap_gwas_imp', 'covar_unrel.txt'),
               delim=' ')
 ```
 
 #### Filtered
 
-```{r}
+```{r read_filtered_subp}
 ukb_filtered <- read_csv(
   file.path(root_fd, 'data', 'pheno', 'filt_covars_wb.csv'),
   col_types = cols())
 ```
 
-```{r}
+```{r construct_blood_counts_filtered_covars}
 ukb_bc_filt <- ukb_covars_bc |> filter(
   eid %in% ukb_filtered$eid)
 ```
 
-```{r}
+```{r construct_filtered_covars}
 ukb_covars_wb_filtered <- ukb_covars_wb_joined_crp |>
   left_join(ukb_d_cancer_inst_0_samples,
             by = 'eid') |>
@@ -194,7 +187,7 @@ ukb_covars_wb_filtered <- ukb_covars_wb_joined_crp |>
     col_types = cols())$eid)
 ```
 
-```{r}
+```{r save_filtered_covars}
 ukb_covars_wb_filtered |>
   write_csv(
     file.path(root_fd, 'data', 'pheno', 'filt_covars_wb.csv'),
@@ -203,7 +196,7 @@ ukb_covars_wb_filtered |>
 
 ## Completely "Healthy" individuals
 
-```{r}
+```{r find_healthy_initial}
 ukb_healthy_part <- ukb_diseases |>
   filter(instance == 0) |>
   group_by(eid) |>
@@ -212,28 +205,28 @@ ukb_healthy_part <- ukb_diseases |>
   distinct()
 ```
 
-```{r}
+```{r find_non_smokers}
 ukb_non_smokers <- read_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_smokers.csv'),
   col_types = cols()) |>
   filter(grepl('Not', Smoker))
 ```
 
-```{r}
+```{r find_no_congenital_diseases}
 ukb_non_cong <- read_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_cong.csv'),
   col_types = cols()) |>
   filter(num_diseases == 0)
 ```
 
-```{r}
+```{r find_non_obese}
 ukb_non_obese <- read_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_body.csv'),
   col_types = cols()) |>
   filter(BMI <= 30)
 ```
 
-```{r}
+```{r construct_healthy_subp}
 ukb_healthy <- ukb_covars_wb_filtered |>
   filter(eid %in% ukb_healthy_part$eid,
          eid %in% ukb_non_smokers$eid,
@@ -241,7 +234,7 @@ ukb_healthy <- ukb_covars_wb_filtered |>
          eid %in% ukb_non_obese$eid)
 ```
 
-```{r}
+```{r save_healthy_covars}
 ukb_healthy |>
   write_csv(
     file.path(root_fd, 'data', 'pheno', 'healthy_covars_wb.csv'),

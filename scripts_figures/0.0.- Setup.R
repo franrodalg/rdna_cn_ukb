@@ -1,6 +1,8 @@
 suppressWarnings(suppressMessages(library(tidyverse)))
 library(patchwork)
 library(ggbreak)
+library(glue)
+library(ggtext)
 
 root_fd <- file.path(here::here(), '..', '..', '..')
 
@@ -99,14 +101,16 @@ fit_ratio <- function(df, the_ratio = 'NLR') {
 }
 
 fit_ratio_scale <-function(df, the_ratio = 'NLR') {
-  flm <- lm(CN ~ . , df |>
-             mutate(across(where(is.numeric), scale)) |>
-             select(Sex, starts_with('Age'), contains('Centre'), 
-                    starts_with('PC'), starts_with('Adj'),
-                    all_of(the_ratio),
-                    CN))
+  flm <- lm(as.formula(paste0(the_ratio,  '~ .')) , df |>
+              mutate(across(where(is.numeric), scale)) |>
+              select(Sex, starts_with('Age'), contains('Centre'), 
+                     starts_with('PC'), starts_with('Adj'),
+                     all_of(the_ratio),
+                     CN))
   broom::tidy(flm, conf.int = TRUE) |> 
     mutate(lpval = -log10(p.value),
            scoeff = sign(estimate)) |>
-    filter(term == the_ratio)
+    filter(term == 'CN') |>
+    mutate(term = the_ratio) |>
+    relocate(term)
 }

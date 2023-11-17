@@ -8,7 +8,7 @@ source('0.0.- Setup.R')
 
 ## Initial Releases
 
-```{r read_last_release}
+```{r read_lattest_release}
 ukb_pheno_last <- read_csv(
   file.path(root_fd, 'data', 'releases', 'pheno_9.csv'),
   col_types = cols())
@@ -39,7 +39,7 @@ ukb_pheno_initial <-
 
 ## Assessment Centre
 
-```{r}
+```{r construct_assessment_centre}
 ukb_ac <- ukb_pheno_initial |>
   select(eid, `coding`=`54-0.0`) |>
   inner_join(
@@ -49,7 +49,7 @@ ukb_ac <- ukb_pheno_initial |>
   rename(`As Centre` = meaning)
 ```
 
-```{r}
+```{r save_assessment_centre}
 ukb_ac |> write_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_ac.csv'),
   na = '')
@@ -57,7 +57,7 @@ ukb_ac |> write_csv(
 
 ## Demographic Variables
 
-```{r demo}
+```{r construct_demographics}
 ukb_demo <- ukb_pheno_initial |> select(
   eid,
   Sex = starts_with('31-'),
@@ -70,13 +70,13 @@ ukb_demo <- ukb_pheno_initial |> select(
          Eth_Back_Gen, Eth_Back = Eth_Back1)
 ```
 
-```{r}
+```{r save_demographics}
 ukb_demo |> write_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_demo.csv'),
   na = '')
 ```
 
-```{r}
+```{r find_countries}
 ukb_countries <- ukb_pheno_initial |> select(
   eid,
   non_uk=starts_with('20115-'),
@@ -102,7 +102,7 @@ ukb_countries <- ukb_pheno_initial |> select(
   select(eid, region, country)
 ```
 
-```{r}
+```{r save_countries}
 ukb_countries |> write_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_countries.csv'),
   na = '')
@@ -110,7 +110,7 @@ ukb_countries |> write_csv(
 
 ## Biometric Variables
 
-```{r}
+```{r construct_biometric}
 ukb_bm <- ukb_pheno_initial |>
   select(
     eid,
@@ -118,7 +118,7 @@ ukb_bm <- ukb_pheno_initial |>
     BMI = `21001-0.0`)
 ```
 
-```{r}
+```{r save_biometric}
 ukb_bm |> write_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_body.csv'),
   na = '')
@@ -126,12 +126,12 @@ ukb_bm |> write_csv(
 
 #### Adjusted Telomere Lengths
 
-```{r}
+```{r find_adj_tel_length}
 ukb_atl <- ukb_pheno_initial |> 
   select(eid, `Adj TL`=starts_with('22191-0.0'))
 ```
 
-```{r}
+```{r save_adj_tel_length}
 ukb_atl |> write_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_adj_tl.csv'),
   na = '')
@@ -139,14 +139,14 @@ ukb_atl |> write_csv(
 
 ## Principal Components
 
-```{r pcs}
+```{r pcs find_pcs}
 ukb_pcs <- ukb_pheno_initial |>
   select(
     eid,
     PC = starts_with('22009-'))
 ```
 
-```{r}
+```{r save_pcs}
 ukb_pcs |> write_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_pc.csv'),
   na = '')
@@ -156,7 +156,7 @@ ukb_pcs |> write_csv(
 
 ### Counts and Percentages
 
-```{r blood_perc}
+```{r read_blood_perc}
 ukb_pheno_blood_perc <- read_csv(
   file.path(root_fd, 'data' ,'metadata', 'ukb_blood_cell_perc.csv'),
   col_types=cols()) |>
@@ -164,7 +164,7 @@ ukb_pheno_blood_perc <- read_csv(
   filter(eid %in% ukb_pheno_last$eid)
 ```
 
-```{r}
+```{r select_blood}
 ukb_pheno_blood <- ukb_pheno_initial |> 
   inner_join(ukb_pheno_blood_perc, by = 'eid') |>
   select(
@@ -184,7 +184,7 @@ ukb_pheno_blood <- ukb_pheno_initial |>
     `NRB %` = `30230-0.0`)
 ```  
   
-```{r}
+```{r save_blood}
 ukb_pheno_blood |>
   select(eid, ends_with('#')) |>
   write_csv(file.path(root_fd, 'data', 'pheno', 'ukb_blood_counts.csv'),
@@ -193,7 +193,7 @@ ukb_pheno_blood |>
 
 ### Processing Time
 
-```{r}
+```{r construct_blood_extr}
 ukb_blood_extr <- read_csv(
   file.path(root_fd, 'data', 'releases', 'pheno_9.csv'),
          col_types = cols()) |>
@@ -204,14 +204,14 @@ ukb_blood_extr <- read_csv(
   select(-year)
 ```
 
-```{r}
+```{r read_acquisition_time}
 ukb_blood_at <- read_csv(
   file.path(root_fd, 'data', 'releases', 'ukb_bc_proc_raw.csv'),
          col_types = cols()) |>
   select(eid, `Acquisition Time` = `30142-0.0`)
 ```
 
-```{r}
+```{r save_blood_processing}
 ukb_blood_extr |>
   inner_join(ukb_blood_at, by = 'eid') |>
   mutate(Delay = `Acquisition Time` - Extraction) |>
@@ -224,90 +224,57 @@ ukb_blood_extr |>
 
 ### Principal Components
 
-```{r}
+```{r filter_blood_perc}
 ukb_pheno_blood_perc_f <- ukb_pheno_blood |>
   filter(`NRB %` == 0) |>
   select(eid, ends_with('%'), -starts_with('NRB'))
 ```
 
-```{r}
+```{r calculate_blood_pcs}
 ukb_pheno_blood_pcs <- FactoMineR::PCA(
   ukb_pheno_blood_perc_f |> select(-eid),
   scale.unit = T, graph = F, ncp = 10)
 ```
 
-```{r}
+```{r save_blood_pcs_raw}
 save(ukb_pheno_blood_pcs, 
      file = file.path(root_fd, 'data', 'pheno', 'ukb_blood_pcs.Rdata'))
 ```
 
-```{r}
+```{r process_blood_pcs}
 ukb_blood_pc <- as_tibble(ukb_pheno_blood_pcs$ind$coord) |>
   mutate(eid = ukb_pheno_blood_perc_f$eid) |>
   relocate(eid) |>
   rename_with(~ gsub("Dim.", "Blood PC", .x, fixed = TRUE))
 ```
 
-```{r}
+```{r save_blood_pcs_processed}
 ukb_blood_pc |> write_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_blood_pc.csv'),
   na = '')
 ```
 
-### Full list of phenotypes from Vuckovic et al
-
-```{r}
-vuckovic_phenotypes <- readxl::read_excel(
-  file.path(root_fd, 'data', 'vuckovic', 'blood_pheno.xlsx'),
-  skip = 2) |>
-  select(Abbreviation = `Standard Abbreviation`,
-         Name = `Long Name`,
-         Variable = `UKB Variable`) |>
-  arrange(Variable)
-```
-
-```{r}
-vuckovic_variables <- paste0(
-  vuckovic_phenotypes$Variable, '-0.0'
-)
-```
-
-```{r}
-ukb_vuckovic <- ukb_pheno_initial |>
-  inner_join(ukb_pheno_blood_perc, by = 'eid') |>
-  select(eid, any_of(vuckovic_variables)) 
-
-colnames(ukb_vuckovic) <- c('eid', vuckovic_phenotypes$Abbreviation)
-```
-
-```{r}
-ukb_vuckovic |>
-  write_csv(
-    file.path(root_fd, 'data', 'pheno', 'ukb_vuckovic.csv'),
-    na = '')
-```
-
 ## Genotyping Array  
   
-```{r}
+```{r read_genotyping_batch}
 ukb_geno_batch <- ukb_pheno_initial |>
   select(eid, Batch = starts_with('22000-'))
 ```
 
-```{r}
+```{r identify_genotyping_array}
 ukb_geno_array <- ukb_geno_batch |>
   mutate(Array=if_else(Batch > 0, '1', '2'),
          Batch=paste0(Array, '_', abs(Batch))) |>
   select(eid, Array, Batch)
 ```
 
-```{r}
+```{r save_genotyping_array}
 ukb_geno_array |> 
   write_csv(file.path(root_fd, 'data', 'pheno', 'ukb_array.csv'),
             na = '')
 ```
 
-```{r}
+```{r identify_wb_genotyping_array}
 ukb_geno_array_wb <- ukb_geno_array |>
   inner_join(ukb_demo, by = 'eid') |>  
   filter(Eth_Back_Gen == 1, Eth_Back == 1001) |>
@@ -316,7 +283,7 @@ ukb_geno_array_wb <- ukb_geno_array |>
 
 ## Sequencing Centre
 
-```{r sc}
+```{r construct_seq_centre}
 ukb_sr <- bind_rows(
   lapply(
     X = list.files(file.path(root_fd, 'data', 'rg')),
@@ -337,13 +304,13 @@ ukb_sr <- bind_rows(
   filter(eid %in% ukb_pheno_last$eid)
 ```
 
-```{r}
+```{r save_seq_release}
 ukb_sr |> write_csv('../data/pheno/ukb_sr.csv', na = '')
 ```
 
 ## 47S CN
 
-```{r read_47s}
+```{r read_ratios}
 ukb_47s <- read_csv(file.path(root_fd, 'data', 'cn', 'ukb_ratios.csv'),
                     col_types = cols()) |>
   filter(rdna > 0) |>
@@ -351,14 +318,14 @@ ukb_47s <- read_csv(file.path(root_fd, 'data', 'cn', 'ukb_ratios.csv'),
   filter(eid %in% ukb_pheno_last$eid)
 ```
 
-```{r}
+```{r save_cn}
 ukb_47s |>
   write_csv(file.path(root_fd, 'data', 'cn', 'ukb_47s.csv'),
             na = '')
 ```
 
 
-```{r 47s_wb}
+```{r find_cn_wb}
 ukb_47s_wb <- ukb_47s |>
   inner_join(ukb_demo |>
                select(eid, Eth_Back_Gen, Eth_Back),
@@ -367,18 +334,17 @@ ukb_47s_wb <- ukb_47s |>
   select(-starts_with('Eth_Back'))
 ```
 
-```{r}
+```{r save_cn_wb}
 ukb_47s_wb |>
   write_csv(file.path(root_fd, 'data', 'cn', 'ukb_47s_wb.csv'),
             na = '')
 ```
 
-
-## GWAS Covariates
+## Standard Covariates (incl. GWAS)
 
 ### White British
 
-```{r}
+```{r construct_wb_covars}
 ukb_gwas_covars_wb <- ukb_demo |>
   inner_join(ukb_bm, by = 'eid') |>
   inner_join(ukb_geno_array_wb, by = 'eid') |>
@@ -399,13 +365,13 @@ ukb_gwas_covars_wb <- ukb_demo |>
          CN, Height) 
 ```
 
-```{r}
+```{r save_wb_covars}
 ukb_gwas_covars_wb |> write_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_gwas_covars.csv'),
   na = '')
 ```
 
-```{r}
+```{r format_wb_covarsbolr_lmm}
 ukb_gwas_covars_wb_blmm <- ukb_gwas_covars_wb |> 
   mutate(FID=eid, IID=eid) |>
   select(-eid) |>
@@ -422,38 +388,15 @@ colnames(ukb_gwas_covars_wb_blmm) <- gsub(' ', '_',
              ukb_gwas_covars_wb_blmm |> select(-ends_with('ID'))))))
 ```
 
-```{r}
+```{r save_wb_covars_bolt_lmm}
 ukb_gwas_covars_wb_blmm |>
   write_delim(file.path(root_fd, 'sc_rap', 'rap_gwas_imp', 'covar.txt'),
               delim=' ')
 ```
 
-
-
-```{r}
-ukb_gwas_covars_o <- ukb_demo |>
-  inner_join(ukb_bm, by = 'eid') |>
-  inner_join(ukb_geno_array_wb, by = 'eid') |>
-  filter(Array == 1) |>
-  inner_join(ukb_pcs, by = 'eid') |>
-  inner_join(ukb_blood_pc, by = 'eid') |>
-  inner_join(ukb_sr, by = 'eid') |>
-  inner_join(ukb_atl, by = 'eid') |>
-  inner_join(ukb_47s_wb, by = 'eid') |>
-  inner_join(ukb_ac |> select(-coding), by = 'eid') |>
-  mutate(`Age Sq` = Age * Age) |>
-  select(eid, Sex,
-         starts_with('Age'), 
-         contains('Centre'),
-         paste0('PC', 1:10),
-         starts_with('Blood'),
-         starts_with('Adj'),
-         CN, Height) 
-```
-
 ### deCODE
 
-```{r}
+```{r format_decode_covars_bolt_lmm}
 ukb_gwas_covars_decode_blmm <- ukb_gwas_covars_wb |> 
   filter(`Seq Centre` == 'deCODE') |>
   mutate(FID=eid, IID=eid) |>
@@ -470,7 +413,7 @@ colnames(ukb_gwas_covars_decode_blmm) <- gsub(' ', '_',
              ukb_gwas_covars_decode_blmm |> select(-ends_with('ID'))))))
 ```
 
-```{r}
+```{r save_decode_covars_bolt_lmm}
 ukb_gwas_covars_decode_blmm |>
   write_delim(
     file.path(root_fd, 'sc_rap', 'rap_gwas_imp', 'covar_decode.txt'),
@@ -479,7 +422,7 @@ ukb_gwas_covars_decode_blmm |>
 
 ### Sanger
 
-```{r}
+```{r format_sanger_covars_bolt_lmm}
 ukb_gwas_covars_sanger_blmm <- ukb_gwas_covars_wb |> 
   filter(`Seq Centre` == 'Sanger') |>
   mutate(FID=eid, IID=eid) |>
@@ -496,7 +439,7 @@ colnames(ukb_gwas_covars_sanger_blmm) <- gsub(' ', '_',
              ukb_gwas_covars_sanger_blmm |> select(-ends_with('ID'))))))
 ```
 
-```{r}
+```{r save_sanger_covars_bolt_lmm}
 ukb_gwas_covars_sanger_blmm |>
   write_delim(
     file.path(root_fd, 'sc_rap', 'rap_gwas_imp', 'covar_sanger.txt'),
@@ -505,7 +448,7 @@ ukb_gwas_covars_sanger_blmm |>
 
 ## Smokers
 
-```{r}
+```{r find_smokers}
 ukb_smokers <- ukb_pheno_initial |> 
   select(eid, smoking=starts_with('20116-0.0')) |>
   mutate(Smoker = forcats::fct_rev(if_else(
@@ -516,7 +459,7 @@ ukb_smokers <- ukb_pheno_initial |>
   select(-smoking)
 ```
 
-```{r}
+```{r save_smokers}
 ukb_smokers |>
   write_csv(
     file.path(root_fd, 'data', 'pheno', 'ukb_smokers.csv'),
@@ -525,7 +468,7 @@ ukb_smokers |>
 
 ## Congenital Diseases
 
-```{r warning = F}
+```{r find_congenital_diseases, warning = F}
 ukb_cong <- read_csv(
   file.path(root_fd, 'data', 'metadata', 'ukb671089.csv'),
                      col_types = cols()) |>
@@ -537,7 +480,7 @@ ukb_cong <- read_csv(
   filter(eid %in% ukb_pheno_last$eid)
 ```
 
-```{r}
+```{r save_congenital_diseases}
 bind_cols(
   ukb_cong |> select(eid), 
   ukb_cong |> select_if(lubridate::is.Date)) |>
@@ -551,7 +494,7 @@ bind_cols(
 
 ## Cancer
 
-```{r}
+```{r find_cancer}
 ukb_cancer_codes <- read_csv(
   file.path(root_fd, 'data', 'pheno', 'var_20001_enc.csv'),
   col_types = cols()) |>
@@ -567,7 +510,7 @@ ukb_cancer <- read_csv(
     .groups = 'drop')
 ```
 
-```{r}
+```{r save_cancer}
 ukb_cancer |> write_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_infl.csv'),
   na = '')
