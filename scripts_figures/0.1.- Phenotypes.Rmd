@@ -8,7 +8,7 @@ source('0.0.- Setup.R')
 
 ## Initial Releases
 
-```{r read_lattest_release}
+```{r read_latest_release}
 ukb_pheno_last <- read_csv(
   file.path(root_fd, 'data', 'releases', 'pheno_9.csv'),
   col_types = cols())
@@ -17,22 +17,22 @@ ukb_pheno_last <- read_csv(
 ```{r read_pheno, warning = F}
 ukb_pheno_initial <- 
   read_csv(file.path(root_fd, 'data', 'metadata', 'ukb51456.csv'),
-           col_types=cols()) |>
+           col_types = cols()) |>
   inner_join(
     read_csv(file.path(root_fd, 'data', 'metadata', 'ukb51638.csv'),
-           col_types=cols()),
+           col_types = cols()),
     by = 'eid') |>
   inner_join(
     read_csv(file.path(root_fd, 'data', 'metadata', 'ukb51937.csv'),
-           col_types=cols()),
+           col_types = cols()),
     by = 'eid') |>
   inner_join(
     read_csv(file.path(root_fd, 'data', 'metadata', 'ukb668859.csv'),
-           col_types=cols()),
+           col_types = cols()),
     by = 'eid') |>
   inner_join(
     read_csv(file.path(root_fd, 'data', 'metadata', 'ukb669081.csv'),
-             col_types=cols()),
+             col_types = cols()),
     by='eid') |>
   filter(eid %in% ukb_pheno_last$eid)
 ```
@@ -139,7 +139,7 @@ ukb_atl |> write_csv(
 
 ## Principal Components
 
-```{r pcs find_pcs}
+```{r find_pcs}
 ukb_pcs <- ukb_pheno_initial |>
   select(
     eid,
@@ -159,7 +159,7 @@ ukb_pcs |> write_csv(
 ```{r read_blood_perc}
 ukb_pheno_blood_perc <- read_csv(
   file.path(root_fd, 'data' ,'metadata', 'ukb_blood_cell_perc.csv'),
-  col_types=cols()) |>
+  col_types = cols()) |>
   select(eid, ends_with('-0.0')) |>
   filter(eid %in% ukb_pheno_last$eid)
 ```
@@ -371,7 +371,7 @@ ukb_gwas_covars_wb |> write_csv(
   na = '')
 ```
 
-```{r format_wb_covarsbolr_lmm}
+```{r format_wb_covars_bolt_lmm}
 ukb_gwas_covars_wb_blmm <- ukb_gwas_covars_wb |> 
   mutate(FID=eid, IID=eid) |>
   select(-eid) |>

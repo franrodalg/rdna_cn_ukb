@@ -544,7 +544,7 @@ ukb_biomarkers_betas_p <- ukb_biomarkers_sig |>
 ggsave(ukb_biomarkers_betas_p, 
        filename = file.path(
          '..', 'figures_supp', 
-         'S13.- Biomarkers Betas, including Statin.png'),
+         'S14.- Biomarkers Betas, including Statin.png'),
        height = 12, width = 10)
 ```
 
@@ -585,7 +585,7 @@ ggsave(
     ) +
   plot_layout(widths = c(0.6, 0.4)),
   filename = file.path('..', 'figures_supp', 
-                       'S13.- Biomarkers, including Statin.png'), 
+                       'S14.- Biomarkers, including Statin.png'), 
   height = 12, width = 10)
 ```
 
@@ -720,7 +720,7 @@ ggsave(
   plot_annotation(title = '(i) Sanger') +
   plot_layout(widths = c(0.6, 0.4)),
   filename = file.path('..', 'figures_supp', 
-                       'S14i.- Biomarkers, no Statin, Sanger.png'), 
+                       'S15i.- Biomarkers, no Statin, Sanger.png'), 
   height = 11, width = 7)
 ```
 
@@ -854,7 +854,7 @@ ggsave(
   plot_annotation(title = '(ii) deCODE') +
   plot_layout(widths = c(0.6, 0.4)),
   filename = file.path('..', 'figures_supp', 
-                       'S14ii.- Biomarkers, no Statin, deCODE.png'), 
+                       'S15ii.- Biomarkers, no Statin, deCODE.png'), 
   height = 11, width = 7)
 ```
 
@@ -998,7 +998,7 @@ ggsave(
     ) +
   plot_layout(widths = c(0.6, 0.4)),
   filename = file.path('..', 'figures_supp',
-                       'S15A.- Renal Biomarkers, Joint.png'), 
+                       'S16A.- Renal Biomarkers, Joint.png'), 
   height = 5.5, width = 10)
 ```
 
@@ -1044,8 +1044,8 @@ ukb_egfr_cr_sig <- broom::tidy(
 #### GFR from  Cystatin C
 
 ```{r construct_egfr_cc_covars}
-ukb_egfr_cc <- construct_biochem_covars('Cystatin C', 
-                                        blood = 'No', scaling = F) |>
+ukb_egfr_cc <- construct_biochem_covars(
+  'Cystatin C',  blood = 'No', scaling = F) |>
   filter(!is.na(`Cystatin C`)) |>
   mutate(
     gamma = if_else(Sex == 'Male', 133, 133*0.932)) |>
@@ -1080,8 +1080,8 @@ ukb_egfr_cc_sig <- broom::tidy(
 ukb_egfr_cr_cc <- construct_biochem_covars('Cystatin C', 
                          blood = 'No', scaling = F,
                          retain_eid = TRUE) |>
-    bind_cols(construct_biochem_covars('Creatinine', 
-                                        blood = 'No', scaling = F) |>
+    bind_cols(construct_biochem_covars(
+      'Creatinine',  blood = 'No', scaling = F) |>
                    select(contains('Creatinine'))) |>
     filter(!is.na(Creatinine), !is.na(`Cystatin C`)) |>
     select(-contains('assay date'))  |>
@@ -1351,7 +1351,7 @@ ggsave(
     ) +
   plot_layout(widths = c(0.6, 0.4)),
   filename = file.path('..', 'figures', '4.B.- eGFR.png'), 
-  height = 3, width = 6)
+  height = 4, width = 6)
 ```
 
 ## eGFR by Sequencing centre
@@ -1687,7 +1687,7 @@ ggsave(
             axis.ticks.y = element_blank()))
     ) +
   plot_layout(widths = c(0.6, 0.4)),
-  filename = file.path('..', 'figures_supp', 'S15B.- eGFR, SC.png'), 
+  filename = file.path('..', 'figures_supp', 'S16B.- eGFR, SC.png'), 
   height = 6, width = 10)
 ```
 
@@ -1741,20 +1741,20 @@ ukb_egfr_ci_adj_p <- ukb_egfr_ci_adj |>
 ```{r save_egfr_groups_plot}
 ggsave(ukb_egfr_ci_adj_p, 
        filename = '../figures/4.C.- Staircase eGFR.png',
-       height = 2.5, width = 6)
+       height = 4, width = 6)
 ```
 
 ## Kidney disease
 
 ```{r read_kidney_diseases}
 ukb_kidney_d_ids <- read_csv(
-  file.path(root_fd, 'data/releases/ukb_ids_kidney_d.csv'),
+  file.path(root_fd, 'data', 'releases', 'ukb_ids_kidney_d.csv'),
   col_types = cols())
 ```
 
-```{r encode_kidney_diseases ,warning = F}
+```{r encode_kidney_diseases, warning = F}
 ukb_kidney_d <- read_csv(
- file.path(root_fd, 'data/pheno/ukb_kidney_d.csv'),
+ file.path(root_fd, 'data', 'pheno', 'ukb_kidney_d.csv'),
   col_types = cols()) |> 
   group_by(eid) |>
   pivot_longer(-eid, names_to = 'id', values_to = 'val') |>
@@ -1793,6 +1793,12 @@ ukb_group_kidney <- ukb_kidney_d |>
   summarise(`Kidney D.` = any(value), .groups = 'drop') |>
   pivot_wider(names_from = 'kidney_g', values_from = `Kidney D.`) |>
   ungroup()
+```
+
+```{r}
+ukb_group_kidney |>
+  write_csv(file.path(root_fd, 'data', 'pheno', 'ukb_kidney_d_groups.csv'),
+            na = '')
 ```
 
 ```{r construct_kidney_disease_covars}
@@ -2047,4 +2053,527 @@ ukb_group_kidney_o_sig <- suppressWarnings(
 ```{r display_odds_ratios_kidney_diseases_other_eth}
 ukb_group_kidney_o_sig |>
   mutate(OR = exp(estimate), OR_l = exp(conf.low), OR_h = exp(conf.high))
+```
+
+## Comparison of Proteomics Profiles
+
+### Read proteomics values
+
+```{r read_proteomics_wgs}
+proteomics_brit <- read_csv(
+  file.path(root_fd,
+            'proteomics', 'data', 'proteins', 'proteomics_british.csv'),
+  col_types = cols())
+```
+
+```{r extract_protein_names}
+proteins <- colnames(proteomics_brit)[-1]
+```
+
+```{r read_plate_ids}
+prot_plate_ids <- read_csv(
+  file.path(root_fd, 'data', 'releases', 'pheno_10.csv'),
+  col_types = cols()) |>
+  select(eid, starts_with('30901')) |>
+  mutate(`Plate ID` = coalesce(
+    `30901-0.0`, `30901-1.0`, `30901-2.0`, `30901-3.0`)) |>
+  select(eid, `Plate ID`) |>
+  filter(!is.na(`Plate ID`)) |>
+  group_by(`Plate ID`)
+```
+
+```{r read_assessment_centre}
+ukb_ac <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_ac.csv'),
+  col_types = cols())
+```
+
+```{r read_pcs}
+ukb_pcs <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_pc.csv'),
+  col_types = cols())
+```
+
+```{r read blood_pcs}
+ukb_blood_pc <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_blood_pc.csv'),
+  col_types = cols())
+```
+
+```{r read_genotyping_array}
+ukb_geno_array <- 
+  read_csv(file.path(root_fd, 'data', 'pheno', 'ukb_array.csv'),
+            col_types = cols())
+```
+
+```{r subset_genotyping_array}
+ukb_geno_array_wb <- ukb_geno_array |>
+  inner_join(ukb_demo, by = 'eid') |>  
+  filter(Eth_Back_Gen == 1, Eth_Back == 1001) |>
+  select(eid, Array, Batch)
+```
+
+```{r construct_covars_wb}
+ukb_covars_wb <- ukb_demo |>
+  inner_join(ukb_geno_array_wb, by = 'eid') |>
+  filter(Array == 1) |>
+  inner_join(ukb_pcs, by = 'eid') |>
+  inner_join(ukb_blood_pc, by = 'eid') |>
+  inner_join(ukb_ac |> select(-coding), by = 'eid') |>
+  mutate(`Age Sq` = Age * Age) |>
+  select(eid, Sex,
+         starts_with('Age'), 
+         contains('Centre'),
+         paste0('PC', 1:10),
+         starts_with('Blood')) 
+```
+
+```{r construct_proteomics_covars}
+ukb_proteomics_covar <- ukb_egfr_cr_cc |>
+  rename(eGFR = starts_with('eGFR')) |>
+  inner_join(ukb_br, by = 'eid') |>
+  inner_join(ukb_K_lipo_A |> select(eid, starts_with('Lipo')),
+             by = 'eid') |>
+  inner_join(ukb_covars_wb, by = 'eid') |>
+  filter(eid %in% proteomics_brit$eid) |>
+  inner_join(prot_plate_ids, by = 'eid')
+```
+
+```{r save_proteomics_covar}
+ukb_proteomics_covar |>
+  write_csv(file.path(
+    root_fd, 'proteomics', 'data', 'proteins', 'protein_covars.csv'),
+    na = '')
+```
+
+### Fit Model for 18S Ratio
+
+### rDNA CN proteomics associations
+
+```{r fit_protein_cn_function}
+fit_protein_cn_plate <- function(df, protein = 'aarsd1') {
+  aux <- df |>
+    inner_join(proteomics_brit |> select(eid, all_of(protein)),
+               by = 'eid')
+  broom::tidy(
+    lm(
+      as.formula(paste0(protein,  '~ .')),
+      aux |>
+        select(Sex, starts_with('Age'), contains('Centre'), 
+             starts_with('PC'), starts_with('Adj'),
+             all_of(protein), `Plate ID`, CN) |>
+             mutate(across(where(is.numeric), scale))),
+    conf.int = TRUE) |> 
+    mutate(lpval = -log10(p.value),
+           scoeff = sign(estimate)) |>
+    filter(term == 'CN') |>
+    mutate(term = protein)
+}
+```
+
+```{r fit_protein_cn}
+proteins_cn_sig_plate <- bind_rows(
+  lapply(
+    X = proteins,
+    FUN = function(x) {
+      fit_protein_cn_plate(ukb_gwas_covars |>
+                    inner_join(prot_plate_ids, by = 'eid'),
+                  protein = x)
+    }))
+```
+
+```{r save_proteomics_cn_associations}
+proteins_cn_sig_plate |> write_csv(
+  file.path(
+    root_fd,  'proteomics', 'data', 'associations',
+    'rdna_cn_plate_id_no_categories.csv'),
+  na = '')
+```
+
+### Fit Model for Kidney Failure
+
+```{r extract_kidney_disease, warning = F}
+ukb_kidney_d_all <- read_csv(
+ file.path(root_fd, 'data/pheno/ukb_kidney_d_all.csv'),
+  col_types = cols()) |> 
+  group_by(eid) |>
+  pivot_longer(-eid, names_to = 'id', values_to = 'val') |>
+    mutate(val = if_else(
+      as.numeric(lubridate::year(val)) < 1910 |
+        as.numeric(lubridate::year(val)) > 2036, NA, val)) |>
+  mutate(has = ! is.na(val)) |>
+  select(-val) |>
+  group_by(id) |>
+  separate(id, into = 'id', sep = '-', extra = 'drop') |>
+  mutate(id = as.numeric(id)) |>
+  inner_join(ukb_kidney_d_ids |> select(id, title), by = 'id') |>
+  mutate(title = gsub('Date |first reported ', '', title)) |>
+  arrange(eid, title) |>
+  select(-id) |>
+  pivot_wider(names_from = title, values_from = has)
+```
+
+```{r group_kf}
+ukb_kf_all <- ukb_kidney_d_all |>
+  pivot_longer(-eid) |>
+  group_by(name) |>
+  separate(name, into = c('code'), sep = ' ', extra = 'drop') |>
+  filter(code %in% c(ukb_fail_kidney_c)) |>
+  mutate(kidney_g = case_when(
+    code %in% ukb_fail_kidney_c ~ 'Kidney Fail.',)) |>
+  group_by(eid, kidney_g) |>
+  summarise(`Kidney D.` = any(value), .groups = 'drop') |>
+  pivot_wider(names_from = 'kidney_g', values_from = `Kidney D.`) |>
+  ungroup()
+```
+
+```{r save_kf}
+ukb_kf_all |> 
+  write_csv(file.path(root_fd, 'data', 'pheno', 'ukb_kf_all.csv'),
+            na = '')
+```
+
+```{r read_proteomics_wgs}
+proteomics_brit <- read_csv(
+  file.path(root_fd,
+            'proteomics', 'data', 'proteins', 'proteomics_british.csv'),
+  col_types = cols())
+```
+
+```{r construct_kidney_fail_proteomics_covars}
+ukb_group_kf_all_covar <- ukb_kf_all |>
+  inner_join(ukb_covars_wb, by = 'eid') |>
+  filter(eid %in% proteomics_brit$eid)
+```
+
+```{r fit_protein_kidney_fail_function}
+fit_protein_kf_plate <- function(df, protein = 'aarsd1', blood = T) {
+  
+  aux <- df
+  if (! blood ){
+    aux <- aux |>
+      select(-starts_with('Blood'))
+  }
+    
+  aux <- aux |>
+    inner_join(proteomics_brit |> select(eid, all_of(protein)),
+               by = 'eid')
+  broom::tidy(
+    lm(
+      as.formula(paste0(protein,  '~ .')),
+      aux |>
+        select(Sex, starts_with('Age'), starts_with('PC'), 
+             all_of(protein) ,`Kidney Fail.`, 
+             any_of(starts_with('Blood')),
+             starts_with('Plate')) |>
+             mutate(across(where(is.numeric), scale))),
+    conf.int = TRUE) |> 
+    mutate(lpval = -log10(p.value),
+           scoeff = sign(estimate)) |>
+    filter(grepl('Kidney', term)) |>
+    mutate(term = protein)
+}
+```
+
+```{r fit_protein_kidney_fail}
+proteins_kf_all_sig_plate <- bind_rows(
+    lapply(X = proteins,
+           FUN = function(x) 
+             fit_protein_kf_plate(
+               df = ukb_group_kf_all_covar |>
+                 inner_join(prot_plate_ids, by = 'eid'),
+               protein = x, blood = F)))
+```
+
+```{r save_proteomics_kf_associations}
+proteins_kf_all_sig_plate |> write_csv(
+  file.path(
+    root_fd,  'proteomics', 'data', 'associations',
+    'kidney_fail_all_wb_plate_id_no_categories.csv'),
+  na = '')
+```
+
+
+### Fit Model for Other Traits
+
+This might need to be run in HPC servers and the results read in afterwards.
+
+```{r fit_protein_function}
+fit_protein_plate <- function(
+    df, the_var = 'NLR', protein = 'aarsd1', blood = T) {
+  
+  aux <- df
+  if (! blood ){
+    aux <- aux |>
+      select(-starts_with('Blood'))
+  }
+    
+  aux <- aux |>
+    inner_join(proteomics_brit |> select(eid, all_of(protein)),
+               by = 'eid')
+  broom::tidy(
+    lm(
+      as.formula(paste0(protein,  '~ .')),
+      aux |>
+        select(Sex, starts_with('Age'), starts_with('PC'), 
+             all_of(protein), all_of(the_var), 
+             any_of(starts_with('Blood')),
+             starts_with('Plate')) |>
+             mutate(across(where(is.numeric), scale))),
+    conf.int = TRUE) |> 
+    mutate(lpval = -log10(p.value),
+           scoeff = sign(estimate)) |>
+    filter(grepl(the_var, term)) |>
+    mutate(protein = protein, term = gsub('`', '', term)) |>
+    relocate(protein, .after = 1L)
+}
+```
+
+```{r define_phenotypes_to_fit_proteomics}
+protein_vars <- c('NLR', 'PLR', 'LMR', 'SII', 'Lipoprotein A')
+```
+
+```{r fit_proteomics, eval = F}
+proteins_sig_plate <- bind_rows(
+  bind_rows(
+    lapply(X = proteins,
+           FUN = function(x) 
+             lapply(
+               X = protein_vars,
+               FUN =  function(y)
+                 fit_protein_plate(
+                   df = ukb_proteomics_covar, 
+                   protein = x, the_var = y, blood = T)))) |>
+    mutate(`Blood PCs` = 'Yes'),
+  bind_rows(
+    lapply(X = proteins,
+           FUN = function(x) 
+             lapply(
+               X = protein_vars,
+               FUN = function(y)
+                 fit_protein_plate(
+                   df = ukb_proteomics_covar,
+                   protein = x, the_var = y, blood = F)))) |>
+    mutate(`Blood PCs` = 'No')
+)
+```
+
+Reading results obtained on servers
+
+```{r read_proteomic_results}
+prot_control_fd <- file.path(
+  root_fd, 'proteomics', 'data', 'associations_control')
+prot_control_fns <- list.files(prot_control_fd)
+prot_control <- bind_rows(
+  lapply(
+    X = prot_control_fns,
+    FUN = function(x) read_csv(
+      file.path(prot_control_fd, x),
+      col_types = cols()) ) )
+```
+
+```{r extract_proteomic_results}
+prot_control_betas <- prot_control |>
+  filter(`Blood PCs` == 'No') |>
+  select(term, protein, estimate) |>
+  group_by(protein) |>
+  pivot_wider(names_from = term, values_from = estimate) |>
+  ungroup() |>
+  select(-protein)
+```
+
+### Combine
+
+```{r combine_proteomics_results}
+prot_control_cn <- prot_control |>
+  filter(`Blood PCs` == 'No') |>
+  select(-`Blood PCs`) |>
+  group_by(term) |>
+  mutate(fdr = p.adjust(p.value, method = 'fdr')) |>
+  filter(fdr < 0.01) |>
+  inner_join(rdna_cn_prot_sig |> 
+               select(protein = term, 
+                      estimate_cn = estimate),
+             relationship = "many-to-many",
+             by = 'protein')
+```
+
+```{r define_proteomics_plot_data}
+prot_control_cn_plot <- bind_rows(
+  prot_control_cn, 
+  proteins_kf_all_sig_plate |>
+  mutate(protein = term, term = 'Kidney Failure') |>
+  group_by(term) |>
+  mutate(fdr = p.adjust(p.value, method = 'fdr')) |>
+  filter(fdr < 0.01) |>
+  inner_join(rdna_cn_prot_sig |> 
+               select(protein = term, 
+                      estimate_cn = estimate),
+             by = 'protein')) |>
+  select(term, protein, estimate, estimate_cn) |>
+  filter(! term %in% c('pm10')) |>
+  mutate(name = paste0(term, ' [N = ', 
+                       format(n_distinct(protein),
+                              big.mark = ","), ']'))
+```
+
+```{r plot_proteomics_first_row}
+prot_control_cn_plot_row1 <- prot_control_cn_plot |>
+  filter(term %in% c('NLR', 'PLR', 'SII')) |>
+  mutate(term = factor(term, levels = c('NLR', 'PLR', 'SII'))) |>
+  ggplot(aes(x = estimate, y = estimate_cn)) +
+  geom_point(shape = 21, fill = 'grey60', alpha = 0.3) +
+  geom_smooth(method = 'lm', colour = 'black', alpha = 0.1, linewidth = 0.75) +
+  ggpubr::stat_cor(label.y.npc = 0.1,
+                   aes(label = cor_format(after_stat(r), after_stat(p)))) +
+  facet_grid(cols = vars(name)) +
+  scale_x_continuous(limits = c(-0.55, 0.55),
+                     breaks = c(-0.5, 0, 0.5)) +
+  scale_y_continuous(limits = c(-0.04, 0.04),
+                     breaks = c(-0.04, 0, 0.04)) +
+  theme_pub() +
+  labs(x = 'Standardised Beta for Variable of Interest',
+       y = 'Standardised Beta for 18S Ratio') +
+  theme(
+    aspect.ratio = 1)
+```
+
+```{r plot_proteomics_second_row}
+prot_control_cn_plot_row2 <- prot_control_cn_plot |>
+  filter(! term %in% c('NLR', 'PLR', 'SII', 'LMR')) |>
+  ggplot(aes(x = estimate, y = estimate_cn)) +
+  geom_point(shape = 21, fill = 'grey60', alpha = 0.3) +
+  geom_smooth(method = 'lm', colour = 'black', alpha = 0.1, linewidth = 0.75) +
+  ggpubr::stat_cor(label.y.npc = 0.1,
+                   aes(label = cor_format(after_stat(r), after_stat(p)))) +
+  facet_grid(cols = vars(name)) +
+  scale_x_continuous(limits = c(-1.1, 1.1),
+                     breaks = c(-1, 0, 1)) +
+  scale_y_continuous(limits = c(-0.04, 0.04),
+                     breaks = c(-0.04, 0, 0.04)) +
+  theme_pub() +
+  labs(x = 'Standardised Beta for Variable of Interest',
+       y = 'Standardised Beta for 18S Ratio') +
+  theme(
+    aspect.ratio = 1)
+```
+
+```{r save_proteomics_plot_second_row}
+prot_control_cn_plot_row2 |>
+  ggsave(
+    filename = file.path('..', 'figures', 
+                         '4.E.- Proteomic profiles, 2nd row.png'),
+    width = 8, height = 6, dpi = 300)
+```
+
+```{r save_proteomics_plot_both_rows}
+prot_control_cn_plot_rows <- (
+  prot_control_cn_plot_row1  +
+    theme(axis.title = element_blank())) /
+  prot_control_cn_plot_row2 &
+  ylab(NULL) & theme(panel.spacing = unit(0.4, 'lines'))
+prot_control_cn_plot_rows |>
+  ggsave(
+    filename = file.path('..', 'figures', '4.E.- Proteomic profiles.png'),
+    width = 8.5, height = 6.5, dpi = 300)
+```
+
+## Supplementary: eGFR Comparison according to Kidney Failure status
+
+```{r join_egfr_kf}
+ukb_egfr_kf <- ukb_egfr_cr_cc |>
+  inner_join(ukb_group_kidney |> select(eid, starts_with('Kid')),
+             by = 'eid') |>
+  mutate(`Kidney Failure` = if_else(`Kidney Fail.`, 'Yes', 'No'))
+```
+
+```{r plot_egfr_kf}
+ukb_egfr_kf_p <- ukb_egfr_kf |>
+  ggplot(aes(y = `eGFRcr+cc`, x = `Kidney Failure`,
+             fill = `Kidney Failure`)) +
+  geom_boxplot(
+    notch = TRUE,
+    outlier.alpha = 0.3,
+    outlier.shape = 21,
+    linewidth = 0.75, alpha = 0.8) +
+  labs(y = 'eGFR<sub>cr+cc</sub>') +
+  scale_fill_manual('', values = c('Yes' = 'tan4',
+                                   'No' = 'peachpuff')) +
+  ggpubr::stat_compare_means(
+    comparisons = list(c('Yes', 'No'))) +
+  lims(y = c(0, 160)) +
+  theme_pub() +
+  theme(axis.title.y = element_markdown(),
+        aspect.ratio = 1,
+        legend.position = 'none')
+```
+
+```{r save_egfr_kf_p}
+ukb_egfr_kf_p |>
+  ggsave(
+    filename = '../figures_supp/eGFR v KF.png',
+    width = 6, height = 6, dpi = 300)
+```
+
+## Proteomics Betas Signs
+
+```{r extract_proteomics_betas}
+prot_betas <- prot_control_cn_plot |>
+  filter(! term %in% c('Lipoprotein A', 'LMR')) |>
+  mutate(type = if_else(term %in% c('NLR', 'PLR', 'SII'),
+                        'Blood\nComposition',
+                        'Renal\nFunction'))
+```
+
+```{r plot_proteomics_betas_panel_1}
+prot_betas_p1 <- prot_betas |> 
+  mutate(term = gsub(' ', '\n', term)) |>
+  ggplot(aes(x = estimate, y = term, fill = term)) + 
+  geom_vline(xintercept = 0, alpha = 0.4, colour = 'grey50') +
+  geom_boxplot(notch = TRUE, 
+               outlier.alpha = 0.3, outlier.shape = 21,
+               alpha = 0.8, linewidth = 0.6) +
+  facet_grid(rows = vars(type), scales = 'free') +
+  scale_fill_manual(values = c(
+    'eGFR' = 'tan2', 'Kidney\nFailure' = 'tan4',
+    'SII' = 'firebrick4', 'PLR' = 'firebrick2', 'NLR' = 'lightcoral')) +
+  theme_pub() +
+  xlim(c(-1, 1)) +
+  labs(x = 'FDR-significant Std. Betas' , 
+       y = 'Variable of Interest') +
+  theme(legend.position = 'none', strip.text = element_blank())
+```
+
+```{r save_proteomics_betas_plot_panel_1}
+prot_betas_p1 |>
+  ggsave(
+    filename = file.path('..', 'figures', '4.F.- Proteomics betas, 1.png'),
+    width = 5, height = 5, dpi = 300)
+```
+
+```{r plot_proteomics_betas_panel_2}
+prot_betas_p2 <- prot_betas |> 
+  mutate(term = gsub(' ', '\n', term),
+         type = forcats::fct_rev(type)) |>
+  ggplot(aes(x = estimate, y = term, fill = term)) + 
+  geom_vline(xintercept = 0, alpha = 0.4, colour = 'grey50') +
+  geom_boxplot(notch = TRUE, 
+               outlier.alpha = 0.3, outlier.shape = 21,
+               alpha = 0.8, linewidth = 0.6) +
+  facet_grid(rows = vars(type), scales = 'free') +
+  scale_fill_manual(values = c(
+    'eGFR' = 'tan2', 'Kidney\nFailure' = 'tan4',
+    'SII' = 'firebrick4', 'PLR' = 'firebrick2', 'NLR' = 'lightcoral')) +
+  theme_pub() +
+  xlim(c(-0.5, 0.5)) +
+  labs(x = 'FDR-significant Std. Betas' , 
+       y = 'Variable of Interest') +
+  theme(legend.position = 'none', strip.text = element_blank())
+```
+
+```{r save_proteomics_betas_plot_panel_2}
+prot_betas_p2 |>
+  ggsave(
+    filename = file.path('..', 'figures', '4.F.- Proteomics betas, 2.png'),
+    width = 5, height = 5, dpi = 300)
 ```

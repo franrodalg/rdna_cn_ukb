@@ -1,0 +1,1393 @@
+---
+title: "Replication in second WGS release"
+---
+
+```{r setup}
+source('0.0.- Setup.R')
+```
+
+## 18S Ratio Estimates
+
+```{r retrieve_18s_counts}
+counts_18s_fd <- file.path('root_fd', 'blood_500k',
+                           'data', 'cn', 'counts_18s')
+counts_18s_fns <- list.files(counts_18s_fd)
+counts_18s <- bind_rows(
+    lapply(
+      X = counts_18s_fns,
+      FUN = function(x) read_csv(file.path(counts_18s_fd, x),
+               col_types = cols()))) |>
+  distinct()
+```
+
+```{r retrieve_wg_counts}
+counts_all_fd <- file.path('root_fd', 'blood_500k',
+                           'data', 'cn', 'counts_all')
+counts_all_fns <- list.files(counts_all_fd)
+counts_num_chr <- bind_rows(
+    lapply(
+      X = counts_all_fns,
+      FUN = function(x) read_tsv(
+          file.path(counts_all_fd, x),
+          col_types = cols()) |>
+        filter(chr %in% paste0('chr', 1:22)) |>
+        group_by(eid) |>
+        summarise(num_reads = sum(mapped), .groups = 'drop'))) |>
+  distinct()
+```
+
+```{r calculate_18s_ratios}
+cn_500k <- counts_18s |>
+  inner_join(counts_num_chr, 
+             by = 'eid', suffix = c('_rdna', '_wg')) |>
+  mutate(CN = num_reads_rdna / num_reads_wg) |>
+  select(-starts_with('num')) |>
+  mutate(release = '500k')
+```
+
+## Standard Covariates (incl. GWAS)
+
+### All
+
+```{r define_seq_provider_codes}
+providers <- tribble(
+  ~Coding, ~`Seq Provider`,
+  1,"Sanger Vanguard Pilot",
+  2,"Sanger Vanguard",
+  3,"Sanger",
+  4,"deCODE")
+```
+
+```{r retrieve_seq_providers}
+ukb_providers <- read_csv('../../../data/releases/pheno_15.csv',
+         col_types = cols()) |>
+  select(eid, `Coding` = starts_with('32051')) |>
+  inner_join(providers, by = 'Coding')
+```
+
+```{r assign_18s_ratios_seq_provider}
+ukb_cn_sc_500k <- cn_500k |>
+  inner_join(ukb_providers |> filter(Coding >= 3) |> select(-Coding),
+             by = 'eid') |>
+  rename(`Seq Centre` = `Seq Provider`)
+```
+
+```{r read_demo}
+ukb_demo <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_demo.csv'),
+  col_types = cols())
+```
+
+```{r read_geno_array}
+ukb_geno_array <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_array.csv'),
+  col_types = cols())
+```
+
+```{r read_pcs}
+ukb_pcs <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_pc.csv'),
+  col_types = cols())
+```
+
+```{r read_atl}
+ukb_atl <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_adj_tl.csv'),
+  col_types = cols())
+```
+
+```{r read_ac}
+ukb_ac <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_ac.csv'),
+  col_types = cols())
+```
+
+```{r construct_covars}
+ukb_covars_500k <- ukb_cn_sc_500k |>
+    filter(eid %in% c(ukb_geno_array |> 
+                        filter(Array == 1) |> pull(eid))) |>
+    inner_join(ukb_demo, by = 'eid') |>
+    inner_join(ukb_pcs, by = 'eid') |>
+    inner_join(ukb_atl, by = 'eid') |>
+    inner_join(ukb_ac |> select(-coding), by = 'eid') |>
+    mutate(`Age Sq` = Age * Age) |>
+    select(eid, Sex, 
+           starts_with('Age'), 
+           Eth_Back,
+           contains('Centre'),
+           paste0('PC', 1:10),
+           starts_with('Adj'),
+           CN)
+
+ukb_covars_500k[is.na(ukb_covars_500k) | ukb_covars_500k == "Inf"] <- NA
+```
+
+```{r filter_covars_wb}
+ukb_covars_500k_wb <- ukb_covars_500k |>
+  filter(Eth_Back == '1001') |>
+  select(-Eth_Back)
+```
+
+### Unrelated White British
+
+```{r read_families}
+ukb_families <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_families.csv'),
+  col_types = cols())
+```
+
+```{r find_unrelated}
+ukb_demo_unrel <- bind_rows(
+  ukb_demo |>
+    inner_join(ukb_families, by = 'eid') |>
+    group_by(fam_id) |>
+    arrange(fam_id, Birth_Year) |>
+    filter(eid == first(eid)) |>
+    ungroup(),
+  ukb_demo |> filter(
+    ! eid %in% ukb_families$eid)) |>
+  arrange(eid)
+```
+
+```{r construct_covars_unrel_wb}
+ukb_unrel_covars_500k_wb <- ukb_covars_500k_wb |> filter(
+  eid %in% ukb_demo_unrel$eid)
+```
+
+```{r save_covars_unrel_formatted}
+ukb_unrel_covars_500k_wb |>
+  write_csv(file.path(root_fd, 'blood_500k', 'data',
+                        'covar', 'covar_unrel.csv'),
+              na='')
+```
+
+```{r read_blood_pcs}
+ukb_blood_pc <-  read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_blood_pc.csv'),
+  col_types = cols())
+```
+
+```{r format_covars_unrel}
+ukb_unrel_covars_500k_wb_bolt <- ukb_unrel_covars_500k_wb |> 
+  inner_join(
+    ukb_blood_pc, by = 'eid') |>
+  mutate(FID=eid, IID=eid) |>
+  select(-eid) |>
+  relocate(FID, .before=Sex) |>
+  relocate(IID, .before=Sex) |>
+  mutate(Sex = as.numeric(as.factor(Sex)),
+         `As Centre` = as.numeric(as.factor(`As Centre`)),
+         `Seq Centre` = as.numeric(as.factor(`Seq Centre`)))
+
+colnames(ukb_unrel_covars_500k_wb_bolt) <- gsub(' ', '_',
+       c('FID', 'IID',
+         tolower(
+           colnames(
+             ukb_unrel_covars_500k_wb_bolt |> select(-ends_with('ID'))))))
+```
+
+```{r save_covars_unrel_formatted}
+ukb_unrel_covars_500k_wb_bolt |>
+  write_delim(file.path(root_fd, 'blood_500k', 'data',
+                        'covar', 'covar_unrel_blood.txt'),
+              delim=' ')
+```
+
+## Supplementary: Differences by Sequencing Centre
+
+```{r plot_seq_rel}
+sr_500k_p <- ukb_covars_500k |>
+  filter(!is.na(CN)) |>
+  group_by(`Seq Centre`) |> 
+  mutate(N = paste0(
+    "[N = ", 
+    format(n(), big.mark = ","), "]")) |> 
+  mutate(`Seq Centre` = paste0(`Seq Centre`, '\n', N)) |>
+  ggplot(aes(x = `Seq Centre`, y = CN)) +
+  geom_boxplot(
+    aes(fill = `Seq Centre`),
+    outlier.alpha = 0.3,
+    outlier.size = 0.3,
+    outlier.shape = 21,
+    size = 0.75,
+    notch = T) +
+  ggpubr::stat_compare_means(
+    comparisons = list( c(1, 2)),
+    label.y = c(7e-4)) +
+  labs(x = '',
+       y = '18S Ratio') +
+  scale_y_continuous(limits = c(0, 7.5e-4),
+                     breaks = c(0, 3e-4, 6e-4),
+                     labels = fancy_scientific) +
+  scale_fill_brewer('', palette = 'Greens') +
+  theme_pub() +
+  theme(legend.position = 'none') 
+```
+
+```{r plot_seq_rel_p}
+ggsave(
+  plot = sr_500k_p,
+  filename = file.path(
+    '..', 'figures_supp', 
+    'S18.- Sequencing Centre Differences, 2nd UKB Release.png'), 
+  height = 5, width = 5)
+```
+
+```{r calculte_seq_diff}
+wilcox.test(ukb_covars_500k |>
+                filter(!is.na(CN)) |> filter(`Seq Centre` == 'deCODE') |>
+              pull(CN),
+            ukb_covars_500k |>
+                filter(!is.na(CN)) |> filter(`Seq Centre` == 'Sanger') |>
+              pull(CN))$p.value
+```
+
+```{r plot_seq_rel_wb}
+sr_500k_wb_p <- ukb_covars_500k_wb |>
+  filter(!is.na(CN)) |>
+  group_by(`Seq Centre`) |> 
+  mutate(N = paste0(
+    "[N = ", 
+    format(n(), big.mark = ","), "]")) |> 
+  mutate(`Seq Centre` = paste0(`Seq Centre`, '\n', N)) |>
+  ggplot(aes(x = `Seq Centre`, y = CN)) +
+  geom_boxplot(
+    aes(fill = `Seq Centre`),
+    outlier.alpha = 0.3,
+    outlier.size = 0.3,
+    outlier.shape = 21,
+    size = 0.75,
+    notch = T) +
+  ggpubr::stat_compare_means(
+    comparisons = list( c(1, 2)),
+    label.y = c(7e-4)) +
+  labs(x = '',
+       y = '18S Ratio') +
+  scale_y_continuous(limits = c(0, 7.5e-4),
+                     breaks = c(0, 3e-4, 6e-4),
+                     labels = fancy_scientific) +
+  scale_fill_brewer('', palette = 'Greens') +
+  theme_pub() +
+  theme(legend.position = 'none') 
+```
+
+```{r save_seq_rel_wb_plot}
+ggsave(
+  plot = sr_500k_wb_p,
+  filename = file.path(
+    '..', 'figures_supp', 
+    'S18.- Sequencing Centre Differences, 2nd UKB Release, WB.png'), 
+  height = 5, width = 5)
+```
+
+## A.- Relatives
+
+```{r define_cn_relatives}
+ukb_rels_500k <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_rel_dist.csv'),
+  col_types = cols()) |>
+  select(rel_type = dist, eid_1 = ID1, eid_2 = ID2) |>
+  inner_join(ukb_cn_sc_500k, by = c('eid_1' = 'eid')) |>
+  inner_join(ukb_cn_sc_500k, by = c('eid_2' = 'eid'),
+             suffix = c('_1', '_2')) |>
+  mutate(rel_type = forcats::fct_relevel(rel_type, 'MZ Twins')) |>
+  filter(!is.na(CN_1), !is.na(CN_2))
+```
+
+```{r define_cn_relatives_same_seq}
+ukb_rels_500k_same_sc <- ukb_rels_500k |>
+  filter(`Seq Centre_1` == `Seq Centre_2`)
+```
+
+```{r plot_cn_relatives_comparison}
+ukb_rels_500k_same_sc_p <- ukb_rels_500k_same_sc |> 
+  mutate(rel_type = case_when(
+    grepl('MZ', rel_type) ~ 'Monozygotic Twins\n[N = 41 pairs]',
+    grepl('First', rel_type) ~ 'First-Degree Relatives\n[N = 5,173 pairs]',
+    grepl('Second', rel_type) ~ 'Second-Degree Relatives\n[N = 2,050 pairs]',
+    TRUE ~ 'Third-Degree Relatives\n[N = 11,715 pairs]'),
+    rel_type = forcats::fct_relevel(
+      rel_type,
+      'Monozygotic Twins\n[N = 41 pairs]' )) |>
+  ggplot(aes(x=CN_1, y=CN_2)) +
+  ggrastr::geom_point_rast(aes(shape = `Seq Centre_1`,
+                               fill = `Seq Centre_1`),
+                           alpha = 0.3, size = 2, 
+                           stroke = 0.5, colour = 'black') +
+  geom_smooth(formula = 'y ~ x',
+              method = 'lm', 
+              alpha = 0.1, 
+              colour = 'grey30', 
+              linewidth = 0.75) +
+  facet_grid(cols = vars(rel_type)) +
+  ggpubr::stat_cor(aes(
+    label = cor_format(..r.., ..p..)),
+    size = 5) +
+  scale_shape_manual(
+    'Sequencing\nProvider',
+    values = c(21, 22)) +
+  scale_fill_brewer(
+    'Sequencing\nProvider',
+    palette = 'Greys') +
+  labs(x = '18S Ratio for "Relative 1"',
+       y = '18S Ratio\nfor "Relative 2"') +
+  scale_x_continuous(limits = c(0, 4.5e-4),
+                     breaks = c(0, 2e-4, 4e-4),
+                     labels = fancy_scientific) +
+  scale_y_continuous(limits = c(0, 4.5e-4),
+                     breaks = c(0, 2e-4, 4e-4),
+                     labels = fancy_scientific) +
+  theme_pub() +
+  theme(aspect.ratio = 1,
+        axis.title = element_text(size = 20),
+        axis.text = element_text(size = 16),
+        strip.text = element_text(size = 18),
+        legend.title = element_text(size = 14, face = 'bold'),
+        legend.text = element_text(size = 13)) +
+  guides(shape = guide_legend(override.aes = list(size = 3)))
+```
+
+```{r save_cn_relatives_comparison_plot}
+ggsave(
+  plot = ukb_rels_500k_same_sc_p,
+  filename = file.path('..', 'figures', 
+                       '5.A. - Relatives by distance, same SC.png'),
+  units = 'in', width = 18, height = 5)
+```
+
+## Twin comparison across releases
+
+```{r retrieve_twins}
+ukb_twins <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_rel_dist.csv'),
+  col_types = cols()) |>
+  select(rel_type = dist, eid_1 = ID1, eid_2 = ID2) |>
+  filter(rel_type == 'MZ Twins')
+```
+
+```{r retrieve_cn_first_release}
+cn_orig <- read_csv(
+  '../../../data/cn/ukb_47s.csv', col_types = cols()) |>
+  select(eid, CN) |>
+  mutate(release = '1st Release')
+```
+
+```{r combine_cn_releases}
+cn_combined <- bind_rows(
+  ukb_cn_sc_500k |>
+    select(-`Seq Centre`) |>
+    mutate(release = '2nd Release'),
+  cn_orig )
+```
+
+```{r plot_twins_cn_releases}
+ukb_twins_releases_p <- ukb_twins |>
+  inner_join(cn_combined, by = c('eid_1' = 'eid')) |>
+  inner_join(cn_combined, by = c('eid_2' = 'eid'),
+             suffix = c('_1', '_2')) |>
+  mutate(releases = if_else(release_1 == release_2, release_1,
+                            'Different Release')) |>
+  ggplot(aes(x = CN_1, y = CN_2)) +
+  geom_point(shape = 21, fill = 'grey60', alpha = 0.4, stroke = 0.75) +
+  geom_smooth(method = 'lm', alpha = 0.1, colour = 'black', linewidth = 0.75) +
+  ggpubr::stat_cor(aes(
+    label = cor_format(..r.., ..p..)),
+    size = 5) +
+  facet_grid(cols = vars(releases)) +
+  scale_x_continuous(
+    limits = c(0, 3e-4),
+    breaks = c(0, 1e-4, 2e-4, 3e-4),
+    labels = fancy_scientific) +
+  scale_y_continuous(
+    limits = c(0, 3e-4),
+    breaks = c(0, 1e-4, 2e-4, 3e-4),
+    labels = fancy_scientific) +
+  labs(x = '18S Ratio for Twin 1', y = '18S Ratio for Twin 2') +
+  theme_pub() +
+  theme(
+    aspect.ratio = 1,
+    panel.border = element_rect(linewidth = 1.1),
+    panel.grid = element_blank(),
+    panel.spacing = unit(0.1, 'lines'),
+    strip.background = element_blank())
+```
+
+```{r psave_twins_cn_releases_plot}
+ggsave(
+  plot = ukb_twins_releases_p,
+  filename = file.path('..', 'figures_supp', 
+                       'S19.- Twins across releases.png'),
+  units = 'in', width = 14, height = 5)
+```
+
+## Supplementary.- GWAS
+
+```{r read_cn_unrel_gwas_results}
+bolt_lmm_cn_unrel_500k <- read_tsv(
+  file.path(root_fd, 'blood_500k', 'data',
+            'gwas_imp_500k', 'cn_msnps_unrel.tsv'),
+  col_types = cols()) |> 
+  mutate(pval=P_BOLT_LMM_INF) |>
+  select(snp=SNP, chr=CHR, pos=BP, pval=P_BOLT_LMM_INF) 
+```
+
+```{r calculate_cn_unrel_gwas_infl_factor}
+bolt_lmm_cn_unrel_500k_chisq <- qchisq(1-bolt_lmm_cn_unrel_500k$pval, 1)
+
+median(bolt_lmm_cn_unrel_500k_chisq)/qchisq(0.5,1)
+```
+
+```{r setup_manhattan_cn_unrel_plot}
+manhattan_cn_unrel_500k <- bolt_lmm_cn_unrel_500k |>
+  mutate(lpval = -log10(pval)) |>  
+  mutate(pcol = case_when(
+    pval < 5e-8 ~ 'sig', 
+    (chr %% 2) == 0 ~ 'even',
+    TRUE ~ 'odd')) 
+```
+
+```{r plot_manhattan_cn_unrel}
+manhattan_cn_unrel_500k_p <- manhattan_cn_unrel_500k |>
+  ggplot(aes(x = pos, y = lpval)) +
+  ggrastr::geom_point_rast(aes(colour = pcol), size = 0.2) +
+  geom_hline(yintercept = -log10(5e-8),
+             colour = 'firebrick3',
+             linetype = 'dashed') +
+  facet_grid(cols = vars(chr),
+             scales = 'free',
+             space = 'free_x') +
+  scale_colour_manual(
+    values = c('sig' = 'chartreuse3',
+               'odd' = 'grey30',
+               'even' = 'grey60')) +
+  scale_y_continuous(limits = c(0, 10)) +
+  labs(x = '', y = bquote(bold(-log[10](p-value)))) +
+  theme_pub() +
+  theme(
+    legend.position = 'none',
+    panel.spacing.y = unit(0.3, 'lines'),
+    panel.spacing.x = unit(0.05, 'lines'),
+    panel.border = element_blank(),
+    strip.background.x = element_rect(linewidth = 1.1),
+    strip.text.y = element_text(size = 10),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.line.y.left = element_line(),
+    strip.text.x = element_text(size = 7),
+    axis.text.y = element_text(size = 10),
+    axis.title.y = element_text(size = 12))
+```
+
+```{r save_manhattan_cn_unrel}
+ggsave(
+  plot = manhattan_cn_unrel_500k_p,
+  filename = file.path('..', 'figures',
+                       '5.B.- Manhattan CN, Unrelated.png'), 
+  height = 2, width = 12, units = 'in')
+```
+
+## B.- Blood composition: WB Subpopulations
+
+### Construct subpopulations
+
+#### Key information
+
+```{r read_diseases}
+ukb_diseases <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_diseases.csv'),
+col_types = cols())
+```
+
+```{r find_cancer}
+ukb_blood_cancer_codes <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'var_20001_enc.csv'),
+  col_types = cols()) |>
+  filter(blood == 'Y') |>
+  pull(coding)
+
+ukb_d_cancer_inst_0_samples <- ukb_diseases |>
+  filter(var_id == 20001, instance == 0, disease > 0) |>
+  group_by(eid) |>
+  filter(any(disease %in% ukb_blood_cancer_codes)) |>
+  ungroup() |>
+  select(eid) |>
+  distinct() |>
+  mutate(blood_cancer = T)
+```
+
+```{r find_non_cancer}
+ukb_non_cancer_disease_codes <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'var_20002_enc.csv'),
+  col_types = cols()) |>
+  filter(blood_chen == 'Y') |>
+  pull(coding)
+
+ukb_d_non_cancer_inst_0_samples <- ukb_diseases |>
+  filter(var_id == 20002, instance == 0, disease > 0) |>
+  group_by(eid) |>
+  filter(any(disease %in% ukb_non_cancer_disease_codes)) |>
+  ungroup() |>
+  select(eid) |>
+  distinct() |>
+  mutate(disease = T)
+```
+
+```{r read_additional_fields, warning = F}
+ukb_crp_bc <- read_csv(
+  file.path(root_fd, 'data', 'metadata', 'ukb51456.csv'),
+  col_types=cols()) |>
+  select(eid, 
+         crp = `30710-0.0`,
+         wbc = `30000-0.0`,
+         hemoglobin = `30020-0.0`,
+         platelets = `30080-0.0`)
+
+ukb_imm_ret_hcrit <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_imm_ret_hcrit.csv'),
+  col_types = cols()) |>
+  select(eid, imm_ret = `30280-0.0`, hematocrit = `30030-0.0`)
+
+ukb_preg <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_preg.csv'),
+  col_types = cols()) |>
+  select(eid, pregnant = `3140-0.0`)
+
+ukb_filt_cond <- ukb_crp_bc |>
+               select(eid, crp, platelets, wbc, hemoglobin) |>
+  inner_join(ukb_imm_ret_hcrit, by = 'eid') |>
+  inner_join(ukb_preg, by = 'eid')
+```
+
+```{r read_acquisition_time}
+ukb_blood_at_all <- read_csv(
+  file.path(root_fd, 'data', 'releases', 'ukb_bc_proc_all.csv'),
+         col_types = cols()) |>
+  select(eid, `Acquisition Time` = `30142-0.0`)
+```
+
+```{r construct_blood_extr}
+ukb_blood_extr <- read_csv(
+  file.path(root_fd, 'data', 'releases', 'pheno_9.csv'),
+         col_types = cols()) |>
+  select(eid, Extraction = `3166-0.0`) |>
+  filter(!is.na(Extraction)) |>
+  mutate(year = lubridate::year(Extraction)) |>
+  filter(as.numeric(as.character(year)) > 1900) |>
+  select(-year)
+```
+
+```{r save_blood_processing}
+ukb_delay_all <- ukb_blood_extr |>
+  inner_join(ukb_blood_at_all, by = 'eid') |>
+  mutate(Delay = `Acquisition Time` - Extraction) |>
+  arrange(desc(Delay)) |>
+  filter(as.numeric(Delay) < 36)
+```
+
+#### "Filtered" participants
+
+```{r construct_filtered_covars}
+ukb_filtered_all <- ukb_filt_cond |>
+  left_join(ukb_d_cancer_inst_0_samples,
+            by = 'eid') |>
+  left_join(ukb_d_non_cancer_inst_0_samples,
+            by = 'eid') |>
+  replace_na(list(blood_cancer = F, disease = F)) |>
+  filter(! blood_cancer, ! disease, ! pregnant %in% c('1', '2'),
+         wbc <= 200, hemoglobin <= 20, hematocrit <= 60, platelets <= 1000) |>
+  filter(eid %in% ukb_delay_all$eid)
+```
+
+#### Completely "Healthy" participants
+
+```{r find_healthy_initial}
+ukb_healthy_part <- ukb_diseases |>
+  filter(instance == 0) |>
+  group_by(eid) |>
+  filter(all(disease == 0)) |> 
+  select(eid) |>
+  distinct()
+```
+
+```{r find_non_smokers}
+ukb_non_smokers <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_smokers.csv'),
+  col_types = cols()) |>
+  filter(grepl('Not', Smoker))
+```
+
+```{r find_no_congenital_diseases}
+ukb_non_cong <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_cong.csv'),
+  col_types = cols()) |>
+  filter(num_diseases == 0)
+```
+
+```{r find_non_obese}
+ukb_non_obese <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_body.csv'),
+  col_types = cols()) |>
+  filter(BMI <= 30)
+```
+
+```{r construct_healthy_subp}
+ukb_healthy_all <- ukb_filtered_all |>
+  filter(eid %in% ukb_healthy_part$eid,
+         eid %in% ukb_non_smokers$eid,
+         eid %in% ukb_non_cong$eid,
+         eid %in% ukb_non_obese$eid)
+```
+
+### Covariate tables
+
+```{r read_blood_counts}
+ukb_blood_counts <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_blood_counts.csv'),
+  col_types = cols())
+```
+
+```{r construct_blood_counts_covars}
+ukb_covars_500k_bc <- ukb_blood_counts |>
+  inner_join(ukb_covars_500k_wb, by = 'eid')
+```
+
+```{r construct_blood_ratios_covars}
+ukb_covars_500k_br <- ukb_covars_500k_bc |>
+  filter(`Monocyte #` > 0, !is.na(`Platelet #`)) |>
+  mutate(NLR = `Neutrophil #` / `Lymphocyte #`,
+         PLR = `Platelet #` / `Lymphocyte #`,
+         LMR = `Lymphocyte #` / `Monocyte #`,
+         SII = (`Neutrophil #` *`Platelet #`) / `Lymphocyte #`)
+```
+
+### Fit models
+
+```{r fit_blood_count_function}
+fit_bc_scale <- function(df, subp = 'F', variable) {
+  flm <- lm(as.formula(paste0('`', variable, '`',  '~ .')) , df |>
+              mutate(across(where(is.numeric), scale)) |>
+              select(Sex, starts_with('Age'), contains('Centre'), 
+                     starts_with('PC'), starts_with('Adj'),
+                     all_of(variable),
+                     CN))
+  broom::tidy(flm, conf.int = TRUE) |> 
+    mutate(
+      pop = subp,
+      lpval = -log10(p.value),
+      scoeff = sign(estimate)) |>
+    filter(term == 'CN') |>
+    mutate(term = variable) |>
+    relocate(term)
+}
+```
+
+```{r fit_blood_counts_function}
+fit_bcs <- function(df, subp = 'F') {
+  all_vars <- colnames(df)
+  variables <- all_vars[grepl('#', all_vars)]
+  bind_rows(lapply( X = variables, 
+                    FUN = function(x) fit_bc_scale(df, subp, x) ) )
+}
+```
+
+```{r fit_blood_ratios_subp_function}
+fit_subp_ratio <- function(df, subp = 'F') {
+  lapply(X = c('NLR', 'PLR', 'LMR', 'SII'),
+         FUN = function(x) fit_ratio_scale(df, x) |>
+           mutate(pop = subp))
+}
+```
+
+```{r fit_blood_counts}
+ukb_subp_500k_bc <- bind_rows(
+  fit_bcs(ukb_covars_500k_bc |>
+           filter(eid %in% ukb_filtered_all$eid),
+         subp = 'F'),
+  fit_bcs(ukb_covars_500k_bc |>
+           filter(eid %in% ukb_healthy_all$eid),
+         subp = 'H')) |>
+  mutate(type = 'Counts')
+```
+
+```{r bit_blood_ratios}
+ukb_subp_500k_br <- bind_rows(
+  fit_subp_ratio(ukb_covars_500k_br |>
+           filter(eid %in% ukb_filtered_all$eid),
+         subp = 'F'),
+  fit_subp_ratio(ukb_covars_500k_br |>
+           filter(eid %in% ukb_healthy_all$eid),
+         subp = 'H')) |>
+  mutate(type = 'Ratios')
+```
+
+### Plot
+
+```{r combine_fit_results}
+ukb_supb_500k_sig <- bind_rows(
+  ukb_subp_500k_bc,
+  ukb_subp_500k_br) |> 
+  mutate(subp = factor(
+    if_else(grepl('F', pop), 'Filtered', 'Healthy'))) 
+```
+
+```{r plot_subp_betas}
+subp_betas_500k_betas_p <- ukb_supb_500k_sig |>
+  ggplot(aes(y = term, x = estimate, 
+             xmin = conf.low, xmax = conf.high,
+             shape = subp)) +
+  geom_vline(xintercept = 0, linewidth = 0.5, colour = 'grey80') +
+  geom_pointrange(aes(fill = subp),
+                  colour = 'grey30', size = 1,
+                linewidth = 0.75, alpha = 0.8,
+                position = position_dodge2(width = 0.75)) +
+  scale_fill_manual('Subpopulation', 
+                    values = c('Filtered' = 'burlywood3',
+                               'Healthy' = 'slategray3')) +
+  scale_shape_manual('Subpopulation', 
+                    values = c('Filtered' = 21,
+                               'Healthy' = 23)) +
+  scale_x_continuous(limits = c(-0.065, 0.065),
+                     breaks = c(-0.05, 0, 0.05)) +
+  facet_grid(rows = vars(type), scales = 'free_y', space = 'free') +
+  labs(y = '', x = "Standardised Beta, 95% CI") +
+  theme_pub() +
+  theme(legend.position = 'bottom',
+        legend.title = element_text(size = 14, face = 'bold'),
+        legend.text = element_text(size = 13),
+        legend.margin = margin(t = -10),
+        strip.text.y = element_blank(),
+        axis.text.y = element_text(size = 14),
+        panel.spacing = unit(0.1, 'lines'),
+        plot.margin = margin(r = 10))
+```
+
+```{r plot_subp_pvalues}
+subp_betas_500k_pvalues_p <- ukb_supb_500k_sig |>
+  ggplot(aes(y = term, x = lpval)) +
+  geom_vline(xintercept = -log10(0.05),
+             linewidth = 0.5, colour = 'grey80',
+             linetype = 'dashed') +
+  geom_col(aes(fill = subp),
+                  colour = 'grey30',
+                linewidth = 0.75, alpha = 0.8,
+                position = position_dodge2(width = 0.75)) +
+  scale_fill_manual('Subpopulation', 
+                    values = c('Filtered' = 'burlywood3',
+                               'Healthy' = 'slategray3')) +
+  facet_grid(rows = vars(type), scales = 'free_y', space = 'free') +
+  labs(y = '', x = bquote(bold(-log[10](p-value)))) +
+  theme_pub() +
+  theme(legend.position = 'bottom',
+        legend.title = element_text(size = 14, face = 'bold'),
+        legend.text = element_text(size = 13),
+        legend.margin = margin(t = -10),
+        strip.text.y = element_blank(),
+        axis.text.y = element_text(size = 14),
+        panel.spacing = unit(0.1, 'lines'),
+        plot.margin = margin(r = 10))
+```
+
+```{r save_supb_plot}
+ggsave(
+  plot = ((
+    subp_betas_500k_betas_p + 
+      theme(axis.title.x = element_text(size = 14))) | (
+    subp_betas_500k_pvalues_p +
+      theme(axis.text.y = element_blank(),
+            axis.title.y = element_blank(),
+            axis.ticks.y = element_blank(),
+            axis.title.x = element_text(size = 14),
+            legend.position = 'none'))) +
+  plot_layout(widths = c(0.63, 0.38)),
+  filename = file.path('..', 'figures', 
+                       '5.B.- Subpopulations, blood associations.png'), 
+  height = 6.5, width = 7)
+```
+
+## D.- Blood composition: Non-WB
+
+```{r construct_covars_non_wb}
+ukb_covars_500k_non_wb <- ukb_covars_500k |>
+  filter(Eth_Back != '1001')
+```
+
+```{r construct_blood_counts_covars_non_wb}
+ukb_covars_500k_non_wb_bc <- ukb_blood_counts |>
+  inner_join(ukb_covars_500k_non_wb, by = 'eid')
+```
+
+```{r calculate_blood_ratios_non_wb}
+ukb_covars_500k_non_wb_br <- ukb_covars_500k_non_wb_bc |>
+  filter(`Monocyte #` > 0, !is.na(`Platelet #`)) |>
+  mutate(NLR = `Neutrophil #` / `Lymphocyte #`,
+         PLR = `Platelet #` / `Lymphocyte #`,
+         LMR = `Lymphocyte #` / `Monocyte #`,
+         SII = (`Neutrophil #` *`Platelet #`) / `Lymphocyte #`)
+```
+
+```{r fit_non_wb_blood_function}
+fit_o <- function(df, the_variable = 'Neutrophil #',
+                  num_pc = 10) {
+  broom::tidy(
+    lm(as.formula(paste0('`', the_variable, '`',  '~ .')) , 
+       df |>
+         mutate(across(where(is.numeric), scale)) |>
+         select(Sex, starts_with('Age'), 
+                Eth_Back, contains('Centre'), 
+                any_of(paste0('PC', 1:num_pc)),
+                starts_with('Adj'),
+                all_of(the_variable),
+                CN)),
+    conf.int = TRUE) |> 
+    mutate(lpval = -log10(p.value),
+           scoeff = sign(estimate),
+           term = gsub('`', '', term)) |>
+    filter(term == 'CN') |>
+    mutate(term = the_variable) |>
+    relocate(term)
+}
+```
+
+```{r fit_non_wb_blood}
+bc_vars <- colnames(ukb_covars_500k_non_wb_bc)[
+  grepl('#', colnames(ukb_covars_500k_non_wb_bc))]
+other_eth_500k_sig <- bind_rows(
+  bind_rows(
+  lapply(X = bc_vars,
+       FUN = function(x) fit_o(ukb_covars_500k_non_wb_bc, x))) |>
+    mutate(type = 'Counts'),
+  bind_rows(
+  lapply(X = c('NLR', 'PLR', 'SII', 'LMR'),
+       FUN = function(x) fit_o(ukb_covars_500k_non_wb_br, x))) |>
+    mutate(type = 'Ratios') )
+```
+
+```{r plot_non_wb_betas}
+other_eth_500k_betas_p <- other_eth_500k_sig |> 
+  ggplot(aes(y = term, x = estimate, xmin = conf.low,
+             xmax = conf.high, fill = as.factor(scoeff))) +
+  geom_vline(xintercept = 0, linewidth = 0.5, colour = 'grey80') +
+  geom_pointrange(colour = 'grey30', size = 1,
+                linewidth = 0.75, alpha = 0.8, shape = 23) +
+  scale_fill_manual('', 
+                    values = c('-1' = 'lightcoral',
+                               '1' = 'royalblue4')) +
+  facet_grid(rows = vars(type), scales = 'free_y', space = 'free') +
+  scale_x_continuous(limits = c(-0.06, 0.06),
+                     breaks = c(-0.05, 0, 0.05)) +
+  labs(y = '', x = "Standardised Beta, 95% CI") +
+  theme_pub() +
+  theme(legend.position = 'none',
+        strip.text.y = element_blank(),
+        panel.spacing = unit(0.1, 'lines'),
+        axis.title = element_text(size = 13)) 
+```
+
+```{r plot_non_wb_pval}
+other_eth_500k_pvalues_p <- other_eth_500k_sig |> 
+  ggplot(aes(y = term, x = lpval, fill = as.factor(scoeff))) +
+  geom_vline(xintercept = -log10(0.05), linewidth = 0.5,
+             colour = 'grey80', linetype = 'dashed') +
+  geom_col(colour = 'grey30', linewidth = 0.75, alpha = 0.8) +
+  scale_fill_manual('', 
+                    values = c('-1' = 'lightcoral',
+                               '1' = 'royalblue4')) +
+  facet_grid(rows = vars(type), scales = 'free_y', space = 'free') +
+  labs(y = '', x = bquote(bold(-log[10](p-value)))) +
+  theme_pub() +
+  theme(legend.position = 'none',
+        strip.text.y = element_blank(),
+        panel.spacing = unit(0.1, 'lines'),
+        axis.title = element_text(size = 13)) 
+```
+
+```{r save_non_wb_associations_plot}
+ggsave(
+  plot = ((
+    other_eth_500k_betas_p + 
+      theme(axis.title.x = element_text(size = 14))) | (
+    other_eth_500k_pvalues_p +
+      theme(axis.text.y = element_blank(),
+            axis.title.y = element_blank(),
+            axis.ticks.y = element_blank(),
+            axis.title.x = element_text(size = 14),
+            legend.position = 'none'))) +
+    plot_layout(widths = c(0.63, 0.38)) +
+    plot_annotation(
+      title = 'All Ethnicities other than White British [N = 28,777]'),
+  filename = file.path('..', 'figures', '5.C.- Other Ethnicities.png'),
+  height = 6.5, width = 7)
+```
+
+## E.- eGFR
+
+### Covariates
+
+```{r retrieve_biochem_vars_ids}
+ukb_all_biochem_ids <- read_csv(
+  file.path(root_fd, 'data', 'releases', 'ukb_ids_biochem_all.csv'),
+  col_types = cols())
+```
+
+```{r read_biochem_values}
+ukb_cc_cr <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_cr_cc_all.csv'),
+  col_types = cols()) |> 
+  group_by(eid) |>
+  pivot_longer(-eid, names_to = 'id', values_to = 'val') |>
+  group_by(id) |>
+  separate(id, into = 'id', sep = '-', extra = 'drop') |>
+  mutate(id = as.numeric(id)) |>
+  inner_join(ukb_all_biochem_ids |> select(id, title), by = 'id') |>
+  arrange(eid, title) |>
+  select(-id) |>
+  pivot_wider(names_from = title, values_from = val)
+```
+
+```{r create_blood_extraction_covariates}
+ukb_blood_extr_cov <- ukb_blood_extr |> 
+  mutate(time_hour = as.numeric(lubridate::hour(Extraction)),
+         time_min = as.numeric(lubridate::minute(Extraction)),
+         time_sec = as.numeric(lubridate::second(Extraction)),
+         `Extr. Time` = time_hour + time_min/60 + time_sec/3600) |>
+  select(-starts_with('time_')) |>
+  mutate(`Extr. Month` = case_when(
+    lubridate::year(Extraction) == 2006 ~ '2006',
+    Extraction >= lubridate::as_date('2010-08-01') ~ '2010_end',
+    TRUE ~ paste(lubridate::year(Extraction),
+                 lubridate::month(Extraction), sep = '_'))) |>
+  select(-Extraction)
+```
+
+```{r retrieve_biochem_processing_ids}
+ukb_biochem_proc_ids <- read_csv(
+  file.path(root_fd, 'data', 'releases', 'ukb_ids_biochem_proc.csv'),
+  col_types = cols())
+```
+
+```{r create_creatinine_proc_vars}
+ukb_cr_proc <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_cr_cc_proc_all.csv'),
+  col_types = cols()) |>
+  rename_with(~ gsub("-0.0", "", .x, fixed = TRUE)) |>
+  select(eid, 1:7) |>
+  rename_with(~ ukb_biochem_proc_ids |>
+                filter(id == as.numeric(.x)) |>
+                pull(title), -eid)
+```
+
+```{r create_cystatin_c_proc_vars}
+ukb_cc_proc <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_cr_cc_proc_all.csv'),
+  col_types = cols()) |>
+  rename_with(~ gsub("-0.0", "", .x, fixed = TRUE)) |>
+  select(eid, 8:13) |>
+  rename_with(~ ukb_biochem_proc_ids |>
+                filter(id == as.numeric(.x)) |>
+                pull(title), -eid)
+```
+
+```{r retrieve_dilution}
+ukb_dilution <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_dilution_all.csv'),
+  col_types = cols()) |>
+  rename(`Estimated sample dilution factor` = starts_with('3'))
+```
+
+```{r create_cr_cc_processing_covars}
+ukb_cr_cc_proc_cov <- ukb_cr_proc |>
+  inner_join(ukb_cc_proc, by = 'eid') |>
+  inner_join(ukb_dilution, by = 'eid') |>
+  select(eid, ends_with('assay date'), contains('dilution')) |>
+  mutate(across(where(lubridate::is.Date),
+                ~ as.numeric(.x - min(.x, na.rm = TRUE))))
+```
+
+```{r retreive_fasting}
+ukb_fasting <- read_csv(
+  file.path(root_fd, 'data', 'releases', 'pheno_11.csv'),
+  col_types = cols()) |>
+  select(eid, `Fasting Time` = `74-0.0`)
+```
+
+```{r create_cr_cc_covars_function}
+construct_cr_cc_covars <- function(x, scaling = T, retain_eid = F) {
+  
+  out <- ukb_cc_cr |>
+      select(eid, all_of(x)) |>
+      inner_join(ukb_blood_extr_cov, by = 'eid') |>
+      inner_join(ukb_cr_cc_proc_cov |>
+                   select(eid,
+                          all_of(paste(x, 'assay date')),
+                          contains('dilution')),
+                   by = 'eid') |>
+      inner_join(ukb_fasting, by = 'eid') |>
+      inner_join(ukb_covars_500k_wb, by = 'eid')
+  
+  if(! retain_eid) out <- out |> select(-eid) 
+  
+  if(scaling) {
+    out |>
+      mutate(across(where(is.numeric), scale))
+  } else {
+    out
+  }
+  
+}
+```
+
+### eGFR Creatinine + Cystatin C
+
+```{r create_egfr_cr_cc_covars}
+ukb_egfr_cr_cc_500k <- construct_cr_cc_covars(
+  'Cystatin C', scaling = F, retain_eid = TRUE) |>
+    inner_join(construct_cr_cc_covars(
+      'Creatinine', retain_eid = TRUE, scaling = F) |>
+                   select(eid, contains('Creatinine')),
+               by = 'eid') |>
+    filter(!is.na(Creatinine), !is.na(`Cystatin C`)) |>
+    select(-contains('assay date'))  |>
+  mutate(
+    gamma = if_else(Sex == 'Male', 135, 135*0.963),
+    kappa = if_else(Sex == 'Male', 0.9, 0.7),
+    alpha = if_else(Sex == 'Male', -.144, -.219)) |>
+  rowwise() |>
+  mutate(
+    `eGFRcr+cc` = gamma *
+      min(Creatinine*0.0113/kappa, 1)^alpha *
+      max(Creatinine*0.0113/kappa, 1)^-0.544 *
+      min(`Cystatin C`/0.8, 1)^-0.323 *
+      max(`Cystatin C`/0.8, 1)^-0.778 *
+      0.9961^Age) |>
+  ungroup()
+```
+
+```{r scale_egfr_cr_cc_covars}
+ukb_egfr_cr_cc_500k_scaled <- ukb_egfr_cr_cc_500k |>
+  select(-eid, -alpha, -kappa, -gamma, -Creatinine, -`Cystatin C`) |>
+  mutate(across(where(is.numeric), scale)) 
+```
+
+```{r fit_egfr_cr_cc}
+ukb_egfr_cr_cc_500k_sig <- broom::tidy(
+  lm(CN ~ . , ukb_egfr_cr_cc_500k_scaled), 
+  conf.int = TRUE) |>
+  mutate(lpval = -log10(p.value),
+         scoeff = sign(estimate),
+         term = gsub('`', '', term)) |>
+  filter(term == 'eGFRcr+cc')
+```
+
+### eGFR from Creatinine
+
+```{r construct_egfr_cr_covars}
+ukb_egfr_cr_500k <- construct_cr_cc_covars(
+  'Creatinine', scaling = F, retain_eid = TRUE) |>
+  filter(!is.na(Creatinine)) |>
+  mutate(
+    gamma = if_else(Sex == 'Male', 142, 143.704),
+    kappa = if_else(Sex == 'Male', 0.9, 0.7),
+    alpha = if_else(Sex == 'Male', -.302, -.241)) |>
+  rowwise() |>
+  mutate(
+    eGFRcr = gamma *
+      min(Creatinine*0.0113/kappa, 1)^alpha *
+      max(Creatinine*0.0113/kappa, 1)^-1.2 *
+      0.9938^Age) |>
+  ungroup()
+```
+
+```{r scale_egfr_cr_covars}
+ukb_egfr_cr_500k_scaled <- ukb_egfr_cr_500k |>
+  select(-alpha, -kappa, -gamma, -Creatinine) |>
+  mutate(across(where(is.numeric), scale)) 
+```
+
+```{r fit_egfr_cr}
+ukb_egfr_cr_500k_sig <- broom::tidy(
+  lm(CN ~ . , ukb_egfr_cr_500k_scaled), 
+  conf.int = TRUE) |>
+  mutate(lpval = -log10(p.value),
+         scoeff = sign(estimate),
+         term = gsub('`', '', term)) |>
+  filter(term == 'eGFRcr')
+```
+
+### eGFR Cystatin C
+
+```{r construct_egfr_cc_covars}
+ukb_egfr_cc_500k <- construct_cr_cc_covars(
+  'Cystatin C', scaling = F, retain_eid = TRUE)  |>
+  filter(!is.na(`Cystatin C`)) |>
+  mutate(
+    gamma = if_else(Sex == 'Male', 133, 133*0.932)) |>
+  rowwise() |>
+  mutate(
+    eGFRcc = gamma *
+      min(`Cystatin C`/0.8, 1)^-0.499 *
+      max(`Cystatin C`/0.8, 1)^-1.328 *
+      0.996^Age) |>
+  ungroup()
+```
+
+```{r scale_egfr_cc_covars}
+ukb_egfr_cc_500k_scaled <- ukb_egfr_cc_500k |>
+  select(-eid, -gamma, -`Cystatin C`) |>
+  mutate(across(where(is.numeric), scale)) 
+```
+
+```{r fit_egfr_cc}
+ukb_egfr_cc_500k_sig <- broom::tidy(
+  lm(CN ~ . , ukb_egfr_cc_500k_scaled), 
+  conf.int = TRUE) |>
+  mutate(lpval = -log10(p.value),
+         scoeff = sign(estimate),
+         term = gsub('`', '', term)) |>
+  filter(term == 'eGFRcc')
+```
+
+### Plot
+
+```{r join_egfr_associations}
+ukb_egfr_500k_sig <- bind_rows(
+  ukb_egfr_cr_500k_sig,
+  ukb_egfr_cc_500k_sig,
+  ukb_egfr_cr_cc_500k_sig
+)
+```
+
+```{r create_egfr_labels}
+egfr_labels <- ukb_egfr_500k_sig |>
+  arrange(desc(term)) |>
+  mutate(term = gsub('R', 'R<sub>', gsub('$', '</sub>', term))) |>
+  pull(term)
+```
+
+```{r plot_egfr_betas}
+ukb_egfr_500k_betas_p <- ukb_egfr_500k_sig |>
+  ggplot(aes(y = forcats::fct_rev(term), x = estimate, 
+             xmin = conf.low, xmax = conf.high)) +
+  geom_vline(xintercept = 0, linewidth = 0.5, colour = 'grey80') +
+  geom_pointrange(fill = 'chocolate4', colour = 'grey30', size = 1,
+                linewidth = 0.75, alpha = 0.8, shape = 21,
+                position = position_dodge2(width = 0.75)) +
+  scale_x_continuous(limits = c(-0.031, 0.01),
+                     breaks = c(-0.03, 0)) +
+  scale_y_discrete(labels = egfr_labels) +
+  labs(y = '', x = "Std. Beta; 95% CI") +
+  theme_pub() +
+  theme(legend.position = 'bottom',
+        legend.direction = 'horizontal',
+        legend.title = element_text(face = 'bold'),
+        strip.text = element_blank(),
+        axis.text.y = ggtext::element_markdown(size = 12),
+        axis.title = element_text(size = 14),
+        plot.margin = grid::unit(c(0.1,0.1,2,0.1), 'lines'))
+```
+
+```{r plot_egfr_pvalues}
+ukb_egfr_500k_pvalues_p <- ukb_egfr_500k_sig |>
+  ggplot(aes(y = forcats::fct_rev(term), x = lpval)) +
+  geom_col(fill = 'grey85', colour = 'grey30',
+           linewidth = 0.75, alpha = 0.8, 
+           position = position_dodge2(width = 0.75)) +
+  geom_vline(xintercept = -log10(.05), 
+             linewidth = 0.5, colour = 'grey70',
+             linetype = 'dashed') +
+  scale_y_discrete(labels = egfr_labels) +
+  labs(y = '', x = bquote(bold(-log[10](p-value)))) +
+  theme_pub() +
+  theme(legend.position = 'bottom',
+        legend.direction = 'horizontal',
+        legend.title = element_text(face = 'bold'),
+        strip.text = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title = element_text(size = 14),
+        plot.margin = grid::unit(c(0.1,0.1,2,0.1), 'lines'))
+```
+
+```{r save_egfr_associations_plot}
+ggsave(
+  plot = ((
+    ukb_egfr_500k_betas_p + 
+      theme(axis.title.x = element_text(size = 14))) | (
+    ukb_egfr_500k_pvalues_p +
+      theme(axis.text.y = element_blank(),
+            axis.title.y = element_blank(),
+            axis.ticks.y = element_blank(),
+            axis.title.x = element_text(size = 14),
+            legend.position = 'none'))) +
+    plot_layout(widths = c(0.55, 0.45)),
+  filename = file.path('..', 'figures', '5.D.- eGFR Betas.png'),
+  height = 3.7, width = 4.5)
+```
+
+## F.- Renal Disease
+
+```{r read_kidney_diseases}
+ukb_kidney_d_ids <- read_csv(
+  file.path(root_fd, 'data', 'releases', 'ukb_ids_kidney_d.csv'),
+  col_types = cols())
+```
+
+```{r encode_kidney_diseases, warning = F}
+ukb_kidney_d_500k <- read_csv(
+ file.path(root_fd, 'data', 'pheno', 'ukb_kidney_d_all.csv'),
+  col_types = cols()) |> 
+  filter(eid %in% ukb_covars_500k_wb$eid) |>
+  group_by(eid) |>
+  pivot_longer(-eid, names_to = 'id', values_to = 'val') |>
+    mutate(val = if_else(
+      as.numeric(lubridate::year(val)) < 1904 |
+        as.numeric(lubridate::year(val)) > 2036, NA, val)) |>
+  mutate(has = ! is.na(val)) |>
+  select(-val) |>
+  group_by(id) |>
+  separate(id, into = 'id', sep = '-', extra = 'drop') |>
+  mutate(id = as.numeric(id)) |>
+  inner_join(ukb_kidney_d_ids |> select(id, title), by = 'id') |>
+  mutate(title = gsub('Date |first reported ', '', title)) |>
+  arrange(eid, title) |>
+  select(-id) |>
+  pivot_wider(names_from = title, values_from = has)
+```
+
+```{r define_kidney_disease_groups}
+ukb_glom_d_c <- paste0('N0', 1:8)
+ukb_fail_kidney_c <- paste0('N', c(17:18))
+ukb_urolithiasis_c <- paste0('N', c(20:23))
+```
+
+```{r group_kidney_diseases}
+ukb_group_kidney_500k <- ukb_kidney_d_500k |>
+  pivot_longer(-eid) |>
+  group_by(name) |>
+  separate(name, into = c('code'), sep = ' ', extra = 'drop') |>
+  filter(code %in% c(ukb_glom_d_c, ukb_fail_kidney_c, ukb_urolithiasis_c)) |>
+  mutate(kidney_g = case_when(
+    code %in% ukb_glom_d_c ~ 'Glomerular D.',
+    code %in% ukb_fail_kidney_c ~ 'Kidney Fail.', 
+    code %in% ukb_urolithiasis_c ~ 'Urolithiasis')) |>
+  group_by(eid, kidney_g) |>
+  summarise(`Kidney D.` = any(value), .groups = 'drop') |>
+  pivot_wider(names_from = 'kidney_g', values_from = `Kidney D.`) |>
+  ungroup()
+```
+
+```{r construct_kidney_disease_covars}
+ukb_group_kidney_covar_500k <- ukb_group_kidney_500k |>
+  inner_join(ukb_covars_500k_wb, by = 'eid')
+```
+
+```{r scale_kidney_disease_covars}
+ukb_group_kidney_scaled_500k <- ukb_group_kidney_covar_500k |>
+  select(-eid) |>
+  mutate(across(where(is.numeric), scale)) 
+```
+
+```{r define_kidney_disease_group_names}
+kidney_gs <- colnames(ukb_group_kidney_500k)[-1]
+```
+
+```{r fit_kidney_disease_function}
+fit_kidney_logit <- function(df) {
+  bind_rows(
+    lapply(
+      X = kidney_gs,
+      FUN = function(x) {
+        kidney_gs_other <- setdiff(kidney_gs, x)
+        broom::tidy(
+          glm(as.formula(paste0('`', stringr::str_trim(x), '` ~ . ')),
+              df |>
+               select(-all_of(kidney_gs_other)), 
+          family = 'binomial'),
+          conf.int = TRUE) |>
+          mutate(lpval = -log10(p.value),
+                 scoeff = sign(estimate)) |>
+          filter(term == 'CN') |>
+          select(-term) |>
+          mutate(term = x) |>
+          relocate(term)
+      }))
+}
+```
+
+```{r fit_kidney_diseases}
+ukb_group_kidney_500k_logit_sig <- suppressWarnings(fit_kidney_logit(
+  ukb_group_kidney_scaled_500k))
+```
+
+```{r calculate_kidney_diseases_odds_ratios}
+ukb_group_kidney_500k_or <-  ukb_group_kidney_500k_logit_sig |>
+  mutate(OR = exp(estimate), 
+         OR_l = exp(conf.low), 
+         OR_h = exp(conf.high)) |>
+  mutate(
+    name = case_when(
+     grepl('Gl', term) ~ 'Glomerular\nDisease\n(N00-N08)\n[N = 1,858]', 
+     grepl('Kid', term) ~ 'Kidney\nFailure\n(N17-N18)\n[N = 17,286]',
+     grepl('Uro', term) ~ '\nUrolithiasis\n(N20-N23)\n[N = 7,015]'
+    ) ) |>
+  mutate(name = forcats::fct_rev(forcats::fct_inorder(name)))
+```
+
+```{r plot_kidney_disease_odds_ratios}
+ukb_group_kidney_500k_logit_beta_p <- ukb_group_kidney_500k_or |>
+  ggplot(aes(y = name, x = OR, xmin = OR_l, xmax = OR_h)) +
+  geom_vline(xintercept = 1, linewidth = 0.5, colour = 'grey80') +
+  geom_pointrange(colour = 'grey30', size = 1.5, shape = 22,
+                  fill = 'sienna3',
+                linewidth = 0.75, alpha = 0.8,
+                position = position_dodge2(width = 0.75)) +
+  scale_x_continuous(limits = c(0.98, 1.08),
+                     breaks = c(1, 1.05)) +
+  labs(y = '', x = "Odds Ratio; 95% CI") +
+  theme_pub() +
+  theme(legend.position = 'bottom',
+        strip.text = element_text(size = 12),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size = 14),
+        axis.text.x = element_text(size = 12))
+```
+
+```{r plot_kidney_disease_pvalues}
+ukb_group_kidney_500k_logit_pvalues_p <- ukb_group_kidney_500k_or |>
+  ggplot(aes(y = name, x = lpval)) +
+  geom_col(fill = 'grey85', colour = 'grey30',
+           linewidth = 0.75, alpha = 0.8, 
+           position = position_dodge2(width = 0.75)) +
+  geom_vline(xintercept = -log10(.05), 
+             linewidth = 0.5, colour = 'grey70',
+             linetype = 'dashed') +
+  scale_y_discrete(labels = egfr_labels) +
+  scale_x_continuous(breaks = c(0, 1, 2)) +
+  labs(y = '', x = bquote(bold(-log[10](p-value)))) +
+  theme_pub() +
+  theme(legend.position = 'bottom',
+        legend.direction = 'horizontal',
+        legend.title = element_text(face = 'bold'),
+        strip.text = element_blank(),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title = element_text(size = 14),
+        plot.margin = grid::unit(c(0.1,0.1,2,0.1), 'lines'))
+```
+
+```{r save_kidney_disease_associations_plot}
+ggsave(
+  plot = ((
+    ukb_group_kidney_500k_logit_beta_p + 
+      theme(axis.title.x = element_text(size = 14))) | (
+    ukb_group_kidney_500k_logit_pvalues_p +
+      theme(axis.text.y = element_blank(),
+            axis.title.y = element_blank(),
+            axis.ticks.y = element_blank(),
+            axis.title.x = element_text(size = 14),
+            legend.position = 'none'))) +
+    plot_layout(widths = c(0.5, 0.4)),
+  filename = file.path('..', 'figures',
+                       '5.E.- Kidney Disease Associations.png'),
+  height = 3.7, width = 5)
+```

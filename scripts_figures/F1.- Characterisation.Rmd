@@ -485,7 +485,7 @@ ggsave(
   height = 5, width = 8)
 ```
 
-## F.- Relatives (adjusted for sequencing centre)
+## S7.- Relatives (adjusted for sequencing centre)
 
 ```{r read_relatives}
 ukb_rel_dist <- read_csv(
@@ -545,7 +545,77 @@ ukb_rel_dist_adj_47s_diff_p <- ukb_rel_dist_adj_47s_diff |>
 ```{r save_cn_relatives_comparison_plot}
 ggsave(
   plot = ukb_rel_dist_adj_47s_diff_p,
-  filename = file.path('..', 'figures', '1.F. - Relatives by distance.png'),
+  filename = file.path('..', 'figures', 'S7.- Relatives by distance.png'),
+  units = 'in', width = 16, height = 5)
+```
+
+## F.- Relatives (same sequencing centre)
+
+```{r compare_cn_relatives_same_sc}
+ukb_rel_dist_cn_same_sc <- ukb_rel_dist |>
+  inner_join(
+    ukb_47s_wb |> select(eid, CN),
+    by = c('eid_1' = 'eid')) |>
+  inner_join(
+    ukb_47s_wb |> select(eid, CN),
+    by = c('eid_2' = 'eid'), suffix = c('_1', '_2')) |>
+  inner_join(ukb_sr, by = c('eid_1' = 'eid')) |>
+  inner_join(ukb_sr, by = c('eid_2' = 'eid'), 
+             suffix = c('_1', '_2')) |>
+  filter(`Seq Release_1` == `Seq Release_2`)
+```
+
+```{r plot_cn_relatives_comparison_same_sc}
+ukb_rel_dist_cn_same_sc_p <- ukb_rel_dist_cn_same_sc |> 
+  mutate(rel_type = case_when(
+    grepl('MZ', rel_type) ~ 'Monozygotic Twins\n[N = 12 pairs]',
+    grepl('First', rel_type) ~ 'First-Degree Relatives\n[N = 1,808 pairs]',
+    grepl('Second', rel_type) ~ 'Second-Degree Relatives\n[N = 600 pairs]',
+    TRUE ~ 'Third-Degree Relatives\n[N = 3,768 pairs]'),
+    rel_type = forcats::fct_relevel(
+      rel_type,
+      'Monozygotic Twins\n[N = 12 pairs]' )) |>
+  ggplot(aes(x=CN_1, y=CN_2)) +
+  ggrastr::geom_point_rast(aes(
+    fill = `Seq Release_1`, shape = `Seq Release_1`),
+    alpha = 0.3, size = 2, stroke = 0.5, colour = 'black') +
+  geom_smooth(formula = 'y ~ x',
+              method = 'lm', 
+              alpha = 0.1, 
+              colour = 'grey30', 
+              linewidth = 0.75) +
+  facet_grid(cols = vars(rel_type)) +
+  ggpubr::stat_cor(aes(
+    label = cor_format(..r.., ..p..)),
+    size = 5) +
+  scale_shape_manual(
+    'Sequencing Batch',
+    values = c(21, 22, 23)) +
+  scale_fill_brewer(
+    'Sequencing Batch',
+    palette = 'Greys') +
+  labs(x = '18S Ratio for "Relative 1"',
+       y = '18S Ratio\nfor "Relative 2"') +
+  scale_x_continuous(limits = c(0, 4.5e-4),
+                     breaks = c(0, 2e-4, 4e-4),
+                     labels = fancy_scientific) +
+  scale_y_continuous(limits = c(0, 4.5e-4),
+                     breaks = c(0, 2e-4, 4e-4),
+                     labels = fancy_scientific) +
+  theme_pub() +
+  theme(aspect.ratio = 1,
+        axis.title = element_text(size = 20),
+        axis.text = element_text(size = 16),
+        strip.text = element_text(size = 18),
+        legend.title = element_text(size = 14, face = 'bold'),
+        legend.text = element_text(size = 13))
+```
+
+```{r save_cn_relatives_comparison_same_sc_plot}
+ggsave(
+  plot = ukb_rel_dist_cn_same_sc_p,
+  filename = file.path('..', 'figures', 
+                       '1.F. - Relatives by distance, Same SC.png'),
   units = 'in', width = 16, height = 5)
 ```
 
@@ -631,72 +701,7 @@ ggsave(
 
 ## G.- GWAS 
 
-### Complete dataset with `--modelSnps`
-
-```{r read_cn_gwas_results}
-bolt_lmm_cn <- read_tsv(
-  file.path(root_fd, 'data', 'gwas_imp', 'cn_msnps.tsv'),
-  col_types = cols()) |> 
-  mutate(pval=P_BOLT_LMM_INF) |>
-  select(snp=SNP, chr=CHR, pos=BP, pval=P_BOLT_LMM_INF) 
-```
-
-```{r calculate_cn_gwas_infl_factor}
-bolt_lmm_cn_chisq <- qchisq(1-bolt_lmm_cn$pval, 1)
-
-median(bolt_lmm_cn_chisq)/qchisq(0.5,1)
-```
-
-```{r setup_manhattan_plot}
-manhattan_cn <- bolt_lmm_cn |>
-  mutate(lpval = -log10(pval)) |>  
-  mutate(pcol = case_when(
-    pval < 5e-8 ~ 'sig', 
-    (chr %% 2) == 0 ~ 'even',
-    TRUE ~ 'odd')) 
-```
-
-```{r plot_manhattan_cn}
-manhattan_cn_p <- manhattan_cn |>
-  ggplot(aes(x = pos, y = lpval)) +
-  ggrastr::geom_point_rast(aes(colour = pcol), size = 0.2) +
-  geom_hline(yintercept = -log10(5e-8),
-             colour = 'firebrick3',
-             linetype = 'dashed') +
-  facet_grid(cols = vars(chr),
-             scales = 'free',
-             space = 'free_x') +
-  scale_colour_manual(
-    values = c('sig' = 'chartreuse3',
-               'odd' = 'grey30',
-               'even' = 'grey60')) +
-  scale_y_continuous(limits = c(0, 8)) +
-  labs(x = '', y = bquote(bold(-log[10](p-value)))) +
-  theme_pub() +
-  theme(
-    legend.position = 'none',
-    panel.spacing.y = unit(0.3, 'lines'),
-    panel.spacing.x = unit(0.05, 'lines'),
-    panel.border = element_blank(),
-    strip.background.x = element_rect(linewidth = 1.1),
-    strip.text.y = element_text(size = 10),
-    axis.ticks.x = element_blank(),
-    axis.title.x = element_blank(),
-    axis.text.x = element_blank(),
-    axis.line.y.left = element_line(),
-    strip.text.x = element_text(size = 7),
-    axis.text.y = element_text(size = 10),
-    axis.title.y = element_text(size = 12))
-```
-
-```{r save_manhattan_cn_plot}
-ggsave(
-  plot = manhattan_cn_p,
-  filename = file.path('..', 'figures', '2.G.- Manhattan CN.png'), 
-  height = 2, width = 12, units = 'in')
-```
-
-### Supplementary: Unrelated individuals
+### Unrelated individuals
 
 ```{r read_cn_unrel_gwas_results}
 bolt_lmm_cn_unrel <- read_tsv(
@@ -757,8 +762,74 @@ manhattan_cn_unrel_p <- manhattan_cn_unrel |>
 ```{r save_manhattan_cn_unrel}
 ggsave(
   plot = manhattan_cn_unrel_p,
+  filename = file.path('..', 'figures',
+                       '1.G.- Manhattan CN, Unrelated.png'), 
+  height = 2, width = 12, units = 'in')
+```
+
+### Supplementary: Complete dataset
+
+```{r read_cn_gwas_results}
+bolt_lmm_cn <- read_tsv(
+  file.path(root_fd, 'data', 'gwas_imp', 'cn_msnps.tsv'),
+  col_types = cols()) |> 
+  mutate(pval=P_BOLT_LMM_INF) |>
+  select(snp=SNP, chr=CHR, pos=BP, pval=P_BOLT_LMM_INF) 
+```
+
+```{r calculate_cn_gwas_infl_factor}
+bolt_lmm_cn_chisq <- qchisq(1-bolt_lmm_cn$pval, 1)
+
+median(bolt_lmm_cn_chisq)/qchisq(0.5,1)
+```
+
+```{r setup_manhattan_plot}
+manhattan_cn <- bolt_lmm_cn |>
+  mutate(lpval = -log10(pval)) |>  
+  mutate(pcol = case_when(
+    pval < 5e-8 ~ 'sig', 
+    (chr %% 2) == 0 ~ 'even',
+    TRUE ~ 'odd')) 
+```
+
+```{r plot_manhattan_cn}
+manhattan_cn_p <- manhattan_cn |>
+  ggplot(aes(x = pos, y = lpval)) +
+  ggrastr::geom_point_rast(aes(colour = pcol), size = 0.2) +
+  geom_hline(yintercept = -log10(5e-8),
+             colour = 'firebrick3',
+             linetype = 'dashed') +
+  facet_grid(cols = vars(chr),
+             scales = 'free',
+             space = 'free_x') +
+  scale_colour_manual(
+    values = c('sig' = 'chartreuse3',
+               'odd' = 'grey30',
+               'even' = 'grey60')) +
+  scale_y_continuous(limits = c(0, 8)) +
+  labs(x = '', y = bquote(bold(-log[10](p-value)))) +
+  theme_pub() +
+  theme(
+    legend.position = 'none',
+    panel.spacing.y = unit(0.3, 'lines'),
+    panel.spacing.x = unit(0.05, 'lines'),
+    panel.border = element_blank(),
+    strip.background.x = element_rect(linewidth = 1.1),
+    strip.text.y = element_text(size = 10),
+    axis.ticks.x = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.line.y.left = element_line(),
+    strip.text.x = element_text(size = 7),
+    axis.text.y = element_text(size = 10),
+    axis.title.y = element_text(size = 12))
+```
+
+```{r save_manhattan_cn_plot}
+ggsave(
+  plot = manhattan_cn_p,
   filename = file.path('..', 'figures_supp',
-                       'S9 - Manhattan CN, Unrelated.png'), 
+                       'S9.- Manhattan CN, all WB.png'), 
   height = 2, width = 12, units = 'in')
 ```
 

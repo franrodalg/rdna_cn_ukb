@@ -43,7 +43,7 @@ fancy_scientific_noz <- function(l) {fancy_scientific(l, remove_zero = FALSE)}
 cor_format <- function(rvalue, pvalue) {
   paste0("`R`~`=`~", 
          ifelse(
-           rvalue < 0.01, 
+           abs(rvalue) < 0.01, 
            fancy_scientific(rvalue),
            as.expression(rvalue)),
          "*`,`~`p`~`=`~", 

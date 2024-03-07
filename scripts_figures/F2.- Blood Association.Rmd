@@ -151,7 +151,7 @@ phesant_cn_with_blood_p <- (phesant_cn_with_blood_beta_p |
 ggsave(
   plot = phesant_cn_with_blood_p,
   filename = file.path('..', 'figures', '2.A.- PHESANT CN.png'), 
-  height = 5.5, width = 8.5)
+  height = 7, width = 8.5)
 ```
 
 ```{r plot_phesant_cn_betas_bottom}
@@ -207,7 +207,7 @@ phesant_cn_with_blood_p <- (phesant_cn_with_blood_beta_other_p |
 ggsave(
   plot = phesant_cn_with_blood_p,
   filename = file.path('..', 'figures', '2.A.- PHESANT CN, Other.png'), 
-  height = 5.5, width = 8.5)
+  height = 7, width = 8.5)
 ```
 
 ### Supplementary.- Sanger
@@ -517,8 +517,6 @@ ggsave(
 
 ## B.- Association with Blood Counts and Ratios
 
-### Supplementary.- Multivariate Blood Counts
-
 ```{r read_blood_counts}
 ukb_blood_counts <- read_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_blood_counts.csv'),
@@ -530,6 +528,8 @@ ukb_covars_bc <- ukb_gwas_covars |>
   inner_join(ukb_blood_counts, by = 'eid') |>
   select(-Height, -starts_with('Blood'))
 ```
+
+### Supplementary.- Multivariate Blood Counts
 
 ```{r fit_blood_counts}
 ukb_bc_sig_scale <- broom::tidy(
@@ -682,7 +682,7 @@ ggsave(
   plot = ukb_br_beta_p,
   filename = file.path('..', 'figures',
                        '2.B.- Blood Ratios, Association Betas.png'), 
-  height = 2.5, width = 4)
+  height = 2, width = 4)
 ```
 
 ```{r plot_blood_ratios_sig}
@@ -718,13 +718,13 @@ ukb_br_p <- (ukb_br_beta_p +
     axis.text.y = element_blank(),
     axis.ticks.y = element_blank(),
     plot.margin = margin(l = -100)))) +
-  plot_layout(widths = c(0.55, 0.45))
+  plot_layout(widths = c(0.6, 0.4))
 
 ggsave(
   plot = ukb_br_p,
   filename = file.path('..', 'figures', 
                        '2.B.- Blood Ratios, Association.png'), 
-  height = 2.75, width = 8.5)
+  height = 2.2, width = 7.2)
 ```
 
 ## Mendelian Randomisation
@@ -966,7 +966,7 @@ bind_rows(
             na = '')
 ```
 
-## C.- Known influences on NLR
+## D.- Known influences on NLR
 
 ```{r read_nlr}
 ukb_nlr <- read_csv(
@@ -975,14 +975,14 @@ ukb_nlr <- read_csv(
   select(eid, NLR)
 ```
 
-```{r read_cancer}
-ukb_infl <- read_csv(
-  file.path(root_fd, 'data', 'pheno', 'ukb_infl.csv'),
+```{r read_infl_nlr}
+ukb_infl_nlr <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_infl_nlr.csv'),
   col_types = cols())
-infl_vars <- 'Cancer'
+infl_nlr_vars <- ukb_infl_nlr |> select(-eid) |> colnames()
 ```
 
-```{r read_demographics}
+```{r read_infl_nlr_cov}
 ukb_demo <- read_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_demo.csv'),
   col_types = cols())
@@ -992,13 +992,17 @@ ukb_pcs <- read_csv(
 ukb_atl <- read_csv(
   file.path(root_fd, 'data', 'pheno', 'ukb_adj_tl.csv'),
   col_types = cols())
+ukb_ac <- read_csv(
+  file.path(root_fd, 'data', 'pheno', 'ukb_ac.csv'),
+  col_types = cols())
 ```
 
-```{r construct_nlr_covars}
+```{r construct_infl_nlr_covars}
 ukb_nlr_pheno <- ukb_nlr |>
   inner_join(ukb_demo, by = 'eid') |>
   inner_join(ukb_pcs, by = 'eid') |>
   inner_join(ukb_atl, by = 'eid') |>
+  inner_join(ukb_ac, by = 'eid') |>
   mutate(`Age Sq` = Age * Age,
          Eth_Back = as.factor(Eth_Back)) |>
   select(eid, Sex, Eth_Back,
@@ -1009,8 +1013,8 @@ ukb_nlr_pheno <- ukb_nlr |>
          NLR) 
 ```
 
-```{r fit_nlr_age_function}
-fit_infl_age <- function(pop = 'NLR - UKB') {
+```{r fit_infl_nlr_age_sex_function}
+fit_infl_nlr_age_sex <- function(pop = 'NLR - UKB') {
   
   if(pop == 'NLR - UKB') { 
     df <- ukb_nlr_pheno
@@ -1021,7 +1025,8 @@ fit_infl_age <- function(pop = 'NLR - UKB') {
   } else {
     df <- (ukb_nlr_pheno |>
              filter(eid %in% ukb_gwas_covars$eid) |>
-             select(-Eth_Back)) }
+             select(-Eth_Back))
+  }
   
   broom::tidy(
     lm(NLR ~ . , df |> 
@@ -1032,17 +1037,17 @@ fit_infl_age <- function(pop = 'NLR - UKB') {
            lpval = -log10(p.value),
            scoeff = sign(estimate),
            Population = pop) |>
-    filter(grepl('Age', term)) |>
+    filter(grepl('Age', term) | grepl('Sex', term)) |>
     relocate(Population)
-  
 }
 ```
 
-```{r fit_nlr_infl_function}
-fit_infl_var <- function(pop = 'NLR - UKB', the_var = 'Cancer') {
+```{r fit_infl_nlr_function}
+fit_infl_nlr_var <- function(pop = 'NLR - UKB',
+                             the_var = 'Cancer') {
   
   aux <- ukb_nlr_pheno |>
-      inner_join(ukb_infl |> select(eid, all_of(the_var)),
+      inner_join(ukb_infl_nlr |> select(eid, all_of(the_var)),
                  by = 'eid')
   
   if(pop == 'NLR - UKB') { 
@@ -1069,31 +1074,32 @@ fit_infl_var <- function(pop = 'NLR - UKB', the_var = 'Cancer') {
     filter(grepl(the_var, term)) |>
     mutate(term = gsub('Yes', '', term)) |> 
     relocate(Population)
-  
 }
 ```
 
-```{r define_populations}
-populations <- paste('NLR', c('UKB', 'WB', 'WB WGS'), sep = ' - ')
+```{r define_populations_analysis}
+populations <- paste('NLR', c('UKB', 'WB', 'WB WGS'),
+                     sep = ' - ')
 ```
 
-```{r fit_nlr_infl}
+```{r fit_infl_nlr}
 ukb_nlr_ass <- bind_rows(
   bind_rows(
     lapply(
       X = populations,
-      FUN = function(x) fit_infl_age(pop = x))),
+      FUN = function(x) fit_infl_nlr_age_sex(pop = x))),
   bind_rows(
     lapply(
       X = populations,
       FUN = function(x) lapply(
-        X = infl_vars,
-        FUN = function(y) fit_infl_var(pop = x, the_var = y))))) |>
+        X = infl_nlr_vars,
+        FUN = function(y) fit_infl_nlr_var(pop = x,
+                                           the_var = y))))) |>
   arrange(Population, term)
 ```
 
-```{r fit_cn_age_function}
-fit_cn_age <- function() {
+```{r fit_cn_age_sex_function}
+fit_cn_age_sex <- function() {
   
   df <- ukb_gwas_covars |>
     select(-starts_with('Blood'), -Height)
@@ -1107,7 +1113,7 @@ fit_cn_age <- function() {
            lpval = -log10(p.value),
            scoeff = sign(estimate),
            Population = '18S Ratio - WB WGS') |>
-    filter(grepl('Age', term)) |>
+    filter(grepl('Age', term) | grepl('Sex', term)) |>
     relocate(Population)
 
 }
@@ -1118,7 +1124,7 @@ fit_cn_var <- function(the_var = 'Cancer') {
   
   df <- ukb_gwas_covars |>
     select(-starts_with('Blood'), -Height) |>
-      inner_join(ukb_infl |> select(eid, all_of(the_var)),
+      inner_join(ukb_infl_nlr |> select(eid, all_of(the_var)),
                  by = 'eid')
   
     broom::tidy(
@@ -1139,14 +1145,14 @@ fit_cn_var <- function(the_var = 'Cancer') {
 
 ```{r fit_cn_infl}
 ukb_cn_ass <- bind_rows(
-  fit_cn_age(),
+  fit_cn_age_sex(),
   bind_rows(lapply(
-        X = infl_vars,
+        X = infl_nlr_vars,
         FUN = function(y) fit_cn_var(the_var = y))))
 ```
 
 ```{r join_infl_associations}
-infl_ass <- bind_rows(
+infl_nlr_ass <- bind_rows(
   ukb_nlr_ass,
   ukb_cn_ass) |>
   rename(Analysis = Population, Variable = term) |>
@@ -1156,28 +1162,36 @@ infl_ass <- bind_rows(
     grepl('WB', Analysis) ~ 'NLR in all WB',
     TRUE ~ 'NLR in all UKB',
   )) |>
-  mutate(Analysis = fct_relevel(Analysis, '18S Ratio in WB with WGS',
+  mutate(Analysis = fct_relevel(Analysis,
+                                '18S Ratio in WB with WGS',
                                 after = 3L)) |>
   mutate(Variable = case_when(
     grepl('Sq', Variable) ~ 'Age Squared',
     grepl('Cancer', Variable) ~ 'Cancer',
+    grepl('HIV', Variable) ~  'HIV',
+    grepl('T2D', Variable) ~  'Type-2 Diabetes',
+    grepl('Sex', Variable) ~ 'Sex',
     TRUE ~  'Age'))
 ```
 
-```{r plot_infl_associations}
-infl_sig_p <- infl_ass |>
+#### Full plot for supplementary
+
+```{r plot_full_infl_associations}
+infl_nlr_sig_full_p <- infl_nlr_ass |>
+  mutate(Variable = fct_relevel(Variable, 'Sex')) |> 
   ggplot(aes(x = Variable, y = lpval, 
              fill = Analysis)) +
   geom_col(position = position_dodge(width = 1.05),
-           alpha = 0.9, linewidth = 0.75, colour = 'black') +
-  geom_hline(yintercept = -log10(0.05), colour = 'grey60', alpha = 0.8,
+           alpha = 0.9, size = 0.75, colour = 'black') +
+  geom_hline(yintercept = -log10(0.05),
+             colour = 'grey60', alpha = 0.8,
              linewidth = 0.75, linetype = 'dashed') +
   facet_grid(cols = vars(Variable), 
              scales = 'free_x') +
   scale_colour_brewer(palette = 'Greys') +
   scale_fill_grey(start = 1, end = 0.1) +
   scale_y_cut(breaks=c(10), space = 0.000001) +
-  expand_limits(y = c(-0.5, 275)) +
+  expand_limits(y = c(-0.5, 310)) +
   labs(x = '',  y = bquote(bold(-log[10](p-value)))) +
   theme_pub() +
   theme(
@@ -1185,83 +1199,55 @@ infl_sig_p <- infl_ass |>
     axis.text.x = element_blank(),
     axis.ticks.x = element_blank(),
     legend.title = element_text(size = 14, face = 'bold'),
-    legend.text = element_text(size = 12)) +
-   guides(fill = guide_legend(nrow = 2))
+    legend.text = element_text(size = 12))
 ```
 
-```{r save_infl_plot}
+```{r save_full_infl_associations_plot}
 ggsave(
-  plot = infl_sig_p,
-  filename = file.path('..', 'figures', '2.C.- NLR influences.png'), 
-  height = 5, width = 8)
+  plot = infl_nlr_sig_full_p,
+  filename = file.path('..', 'figures_supp', 
+                       'SXX.- Influences on NLR, Extended.png'), 
+  height = 6, width = 12)
 ```
 
-## D.- Staircase plots
+#### Reduced plot for main
 
-```{r read_adj_cn}
-ukb_adj_47s <- read_csv(
-  file.path(root_fd, 'data', 'cn', 'ukb_adj_cn_wb.csv'),
-  col_types = cols())
-```
-
-```{r slice_cn_by_group}
-ukb_br_ci_adj <- bind_rows(
-  ukb_covars_br |>
-    inner_join(ukb_adj_47s, by = 'eid') |>
-    group_by(the_group=NLR_group) |>
-    summarise(value = mean(adj_CN),
-              SD = sd(adj_CN),
-              N = n_distinct(eid),
-              margin = qt(ci,df=N-1)*SD/sqrt(N),
-              value_low = value - margin,
-              value_high = value + margin,
-              .groups = 'drop') |>
-    mutate(the_ratio = 'NLR'),
-  ukb_covars_br |>
-    inner_join(ukb_adj_47s, by = 'eid') |>
-    group_by(the_group=PLR_group) |>
-    summarise(value = mean(adj_CN),
-              SD = sd(adj_CN),
-              N = n_distinct(eid),
-              margin = qt(ci,df=N-1)*SD/sqrt(N),
-              value_low = value - margin,
-              value_high = value + margin,
-              .groups = 'drop') |>
-    mutate(the_ratio = 'PLR'),
-  ukb_covars_br |>
-    inner_join(ukb_adj_47s, by = 'eid') |>
-    group_by(the_group=SII_group) |>
-    summarise(value = mean(adj_CN),
-              SD = sd(adj_CN),
-              N = n_distinct(eid),
-              margin = qt(ci,df=N-1)*SD/sqrt(N),
-              value_low = value - margin,
-              value_high = value + margin,
-              .groups = 'drop') |>
-    mutate(the_ratio = 'SII'))
-```
-
-```{r plot_cn_by_ratio_group}
-blood_ratios_ci_adj_narrow_p <- ukb_br_ci_adj |>
-  ggplot(aes(y = the_group, fill = the_group, 
-             xmin = value_low, xmax = value_high, x = value)) +
-  geom_crossbar(colour = 'grey20', alpha = 0.8, size = 0.75) +
-  scale_x_continuous(limits = c(1.55e-4, 1.65e-4),
-                     breaks = c(1.55e-4, 1.6e-4, 1.65e-4),
-                     labels = fancy_scientific) +
-  facet_grid(rows = vars(the_ratio)) +
-  scale_fill_brewer(palette = 'Reds') +
-  labs(x = bquote(bold("SC-Adjusted 18S Ratio (Mean" %+-% "95% CI)"))) +
-  scale_y_discrete('Trait group')  +
+```{r plot_reduced_infl_associations}
+infl_nlr_sig_reduced_p <- infl_nlr_ass |>
+  filter(!grepl('Squared', Variable),
+         !grepl('all UKB', Analysis)) |>
+  mutate(
+    Variable = gsub('ype-2 Diabetes', '2D', Variable),
+    Variable = fct_relevel(Variable, 'Sex')) |> 
+  ggplot(aes(x = Variable, y = lpval, 
+             fill = Analysis)) +
+  geom_col(position = position_dodge(width = 1.05),
+           alpha = 0.9, linewidth = 0.75, colour = 'black') +
+  geom_hline(yintercept = -log10(0.05),
+             colour = 'grey60', alpha = 0.8,
+             linewidth = 0.75, linetype = 'dashed') +
+  facet_grid(cols = vars(Variable), 
+             scales = 'free_x') +
+  scale_colour_brewer(palette = 'Greys') +
+  scale_fill_grey(start = 0.85, end = 0.1) +
+  scale_y_cut(breaks=c(10.5), space = 0.0000001) +
+  expand_limits(y = c(-0.5, 310)) +
+  labs(x = '',  y = bquote(bold(-log[10](p-value)))) +
   theme_pub() +
-  theme(legend.position = 'none')
+  theme(
+    legend.position = 'bottom',
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    legend.title = element_text(size = 14, face = 'bold'),
+    legend.text = element_text(size = 12))
 ```
 
-```{r save_cn_by_ratio_group_plot}
+```{r save_reduced_infl_associations_p}
 ggsave(
-  plot = blood_ratios_ci_adj_narrow_p,
-  filename = file.path('..', 'figures', '2.D.- Staircase.png'), 
-  height = 10, width = 5)
+  plot = infl_nlr_sig_reduced_p,
+  filename = file.path('..', 'figures', 
+                       '2.D.- Influences on NLR, Reduced.png'), 
+  height = 3.75, width = 9)
 ```
 
 ## Temporal Behaviour
@@ -1437,7 +1423,7 @@ ggsave(
   height = 5, width = 10)
 ```
 
-## G.- Hourly Patterns
+## F.- Hourly Patterns
 
 ```{r slice_nlr_hour}
 ukb_nlr_hour <- ukb_datetime |>
@@ -1559,4 +1545,72 @@ broom::tidy(lm(NLR ~ ., data = ukb_delay_covars |>
              select(-CN) |>
              inner_join(ukb_nlr, by = 'eid'))) |> 
   tail()
+```
+
+## G.- Staircase plots
+
+```{r read_adj_cn}
+ukb_adj_47s <- read_csv(
+  file.path(root_fd, 'data', 'cn', 'ukb_adj_cn_wb.csv'),
+  col_types = cols())
+```
+
+```{r slice_cn_by_group}
+ukb_br_ci_adj <- bind_rows(
+  ukb_covars_br |>
+    inner_join(ukb_adj_47s, by = 'eid') |>
+    group_by(the_group=NLR_group) |>
+    summarise(value = mean(adj_CN),
+              SD = sd(adj_CN),
+              N = n_distinct(eid),
+              margin = qt(ci,df=N-1)*SD/sqrt(N),
+              value_low = value - margin,
+              value_high = value + margin,
+              .groups = 'drop') |>
+    mutate(the_ratio = 'NLR'),
+  ukb_covars_br |>
+    inner_join(ukb_adj_47s, by = 'eid') |>
+    group_by(the_group=PLR_group) |>
+    summarise(value = mean(adj_CN),
+              SD = sd(adj_CN),
+              N = n_distinct(eid),
+              margin = qt(ci,df=N-1)*SD/sqrt(N),
+              value_low = value - margin,
+              value_high = value + margin,
+              .groups = 'drop') |>
+    mutate(the_ratio = 'PLR'),
+  ukb_covars_br |>
+    inner_join(ukb_adj_47s, by = 'eid') |>
+    group_by(the_group=SII_group) |>
+    summarise(value = mean(adj_CN),
+              SD = sd(adj_CN),
+              N = n_distinct(eid),
+              margin = qt(ci,df=N-1)*SD/sqrt(N),
+              value_low = value - margin,
+              value_high = value + margin,
+              .groups = 'drop') |>
+    mutate(the_ratio = 'SII'))
+```
+
+```{r plot_cn_by_ratio_group}
+blood_ratios_ci_adj_narrow_p <- ukb_br_ci_adj |>
+  ggplot(aes(y = the_group, fill = the_group, 
+             xmin = value_low, xmax = value_high, x = value)) +
+  geom_crossbar(colour = 'grey20', alpha = 0.8, size = 0.75) +
+  scale_x_continuous(limits = c(1.55e-4, 1.65e-4),
+                     breaks = c(1.55e-4, 1.6e-4, 1.65e-4),
+                     labels = fancy_scientific) +
+  facet_grid(rows = vars(the_ratio)) +
+  scale_fill_brewer(palette = 'Reds') +
+  labs(x = bquote(bold("SC-Adjusted 18S Ratio (Mean" %+-% "95% CI)"))) +
+  scale_y_discrete('Trait group')  +
+  theme_pub() +
+  theme(legend.position = 'none')
+```
+
+```{r save_cn_by_ratio_group_plot}
+ggsave(
+  plot = blood_ratios_ci_adj_narrow_p,
+  filename = file.path('..', 'figures', '2.G.- Staircase.png'), 
+  height = 10, width = 5)
 ```

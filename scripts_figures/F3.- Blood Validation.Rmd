@@ -222,7 +222,7 @@ phesant_ratios_p <- (
 ggsave(
   plot = phesant_ratios_p,
   filename = file.path('..', 'figures', '3.A.- PHESANT ratios.png'), 
-  height = 4, width = 16)
+  height = 4, width = 11)
 ```
 
 ```{r overlap_phesant_function}
@@ -798,12 +798,16 @@ ukb_covars_o[is.na(ukb_covars_o) | ukb_covars_o == "Inf"] <- NA
 ```
 
 ```{r fit_non_wb_blood_function}
-fit_o <- function(df, the_variable = 'Neutrophil #', num_pc = 10) {
+fit_o <- function(df, the_variable = 'Neutrophil #',
+                  num_pc = 10) {
   broom::tidy(
-    lm(as.formula(paste0('`', the_variable, '`',  '~ .')) , df |>
+    lm(as.formula(paste0('`', the_variable, '`',  '~ .')) , 
+       df |>
          mutate(across(where(is.numeric), scale)) |>
-         select(Sex, starts_with('Age'), Eth_Back, contains('Centre'), 
-                any_of(paste0('PC', 1:num_pc)), starts_with('Adj'),
+         select(Sex, starts_with('Age'), 
+                Eth_Back, contains('Centre'), 
+                any_of(paste0('PC', 1:num_pc)),
+                starts_with('Adj'),
                 all_of(the_variable),
                 CN)),
     conf.int = TRUE) |> 
