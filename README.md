@@ -1,8 +1,7 @@
 # Scripts employed to analyse rDNA CN associations in the UK Biobank
 
 Collection of R notebooks employed for generating figures for the manuscript:
-"Genetic Association of Ribosomal DNA Copy Number with Hematological 
-Profiles and Renal Function in the UK Biobank"
+"Ribosomal DNA Copy Number Variation Associates with Hematological Profiles and Renal Function in the UK Biobank".
 
 These scripts are included in the scripts_figures folder
 
