@@ -9,7 +9,7 @@ These scripts are included in the scripts_figures folder
 Files 0.1 to 0.4 are preliminary, focused on the creation of the data 
 structures necessary for the rest of the analysis.
 
-Files F1 to F4 include the code necessary for the generation of the main
+Files F1 to F5 include the code necessary for the generation of the main
 figures in the manuscript, as well as some of their most closely-related
 supplementary figures.
 
