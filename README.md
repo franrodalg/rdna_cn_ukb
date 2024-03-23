@@ -3,7 +3,7 @@
 Collection of R notebooks employed for generating figures for the manuscript:
 "Ribosomal DNA Copy Number Variation Associates with Hematological Profiles and Renal Function in the UK Biobank".
 
-These scripts are included in the scripts_figures folder
+These scripts are included in the scripts_figures folder.
 
 Files 0.1 to 0.4 are preliminary, focused on the creation of the data 
 structures necessary for the rest of the analysis.
@@ -18,4 +18,4 @@ The folder rdna_reference includes a FASTA file for the looped rDNA reference
 employed to calculate total CN values from the 1000 genomes data.
 
 The folder scripts_rap includes local and remote scripts exemplifying the
-retrieval of reads from rDNA analogues on the UK Biobank
+retrieval of reads from rDNA analogues on the UK Biobank.
