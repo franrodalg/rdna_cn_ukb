@@ -9,7 +9,7 @@ source('0.0.- Setup.R')
 ## 18S Ratio Estimates
 
 ```{r retrieve_18s_counts}
-counts_18s_fd <- file.path('root_fd', 'blood_500k',
+counts_18s_fd <- file.path(root_fd, 'blood_500k',
                            'data', 'cn', 'counts_18s')
 counts_18s_fns <- list.files(counts_18s_fd)
 counts_18s <- bind_rows(
@@ -21,7 +21,7 @@ counts_18s <- bind_rows(
 ```
 
 ```{r retrieve_wg_counts}
-counts_all_fd <- file.path('root_fd', 'blood_500k',
+counts_all_fd <- file.path(root_fd, 'blood_500k',
                            'data', 'cn', 'counts_all')
 counts_all_fns <- list.files(counts_all_fd)
 counts_num_chr <- bind_rows(
